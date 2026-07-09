@@ -40,19 +40,50 @@ function parseEntry(entry: ArxivEntry): Paper {
   };
 }
 
-export async function GET(request: NextRequest) {
-  const query = request.nextUrl.searchParams.get("q")?.trim();
+const OPERATORS = ["AND", "OR"] as const;
+type Operator = (typeof OPERATORS)[number];
 
-  if (!query) {
-    return NextResponse.json({ error: "検索キーワード(q)を指定してください" }, { status: 400 });
+const SORT_BY_VALUES = ["relevance", "lastUpdatedDate", "submittedDate"] as const;
+type SortBy = (typeof SORT_BY_VALUES)[number];
+
+const SORT_ORDER_VALUES = ["descending", "ascending"] as const;
+type SortOrder = (typeof SORT_ORDER_VALUES)[number];
+
+export async function GET(request: NextRequest) {
+  const searchParams = request.nextUrl.searchParams;
+
+  const terms = searchParams
+    .getAll("term")
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
+
+  if (terms.length === 0) {
+    return NextResponse.json({ error: "検索キーワード(term)を1つ以上指定してください" }, { status: 400 });
   }
 
+  const operatorParam = searchParams.get("operator");
+  const operator: Operator = OPERATORS.includes(operatorParam as Operator)
+    ? (operatorParam as Operator)
+    : "AND";
+
+  const sortByParam = searchParams.get("sortBy");
+  const sortBy: SortBy = SORT_BY_VALUES.includes(sortByParam as SortBy)
+    ? (sortByParam as SortBy)
+    : "relevance";
+
+  const sortOrderParam = searchParams.get("sortOrder");
+  const sortOrder: SortOrder = SORT_ORDER_VALUES.includes(sortOrderParam as SortOrder)
+    ? (sortOrderParam as SortOrder)
+    : "descending";
+
+  const searchQuery = terms.map((t) => `all:${t}`).join(` ${operator} `);
+
   const params = new URLSearchParams({
-    search_query: `all:${query}`,
+    search_query: searchQuery,
     start: "0",
     max_results: "20",
-    sortBy: "relevance",
-    sortOrder: "descending",
+    sortBy,
+    sortOrder,
   });
 
   const response = await fetch(`${ARXIV_API_URL}?${params.toString()}`);

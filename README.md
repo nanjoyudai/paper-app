@@ -18,12 +18,17 @@ arXivに公開されている論文をキーワードで検索し、タイトル
 - **arXiv APIへのリクエストはサーバー側で行う。** arXiv APIはXML(Atom)を返しCORSの制約もあるため、Next.jsのRoute Handler（`app/api/search/route.ts`）で取得・パースし、JSONにしてクライアントに渡す。フロントから直接arXivを叩かない。
 - **XMLパースには`fast-xml-parser`を使用。** 依存が軽く、素直にオブジェクトへ変換できるため採用。
 - **検索画面はClient Component。** フォーム入力・ローディング・エラー状態を扱うため`app/page.tsx`は`"use client"`にし、`fetch`で自前のAPI Route（`/api/search`）を呼ぶ構成にした。
+- **キーワードは複数入力欄＋AND/OR結合。** 1つの入力欄にスペース区切りで書かせるとarXiv APIのクエリ構文（`AND`/`OR`/`ANDNOT`を明示する必要がある）と食い違うため、キーワードごとに入力欄を分け、`term`パラメータを複数渡してサーバー側で`AND`/`OR`のどちらか一種類の演算子で結合する設計にした。
 - 状態管理はまず素朴に（React標準の`useState`）で組み、複雑化したら都度検討する。
 
 ## 実装済み機能
 
-- `GET /api/search?q=<キーワード>`: arXiv APIへ`all:<キーワード>`で問い合わせ、関連度順で最大20件を返すRoute Handler（`app/api/search/route.ts`）
-- トップページ（`app/page.tsx`）: 検索フォームと、タイトル・著者・公開日・abstractを表示する結果一覧
+- `GET /api/search`: arXiv APIへ問い合わせ、最大20件を返すRoute Handler（`app/api/search/route.ts`）
+  - `term`: 検索キーワード（複数指定可、例: `term=quantum&term=computing`）
+  - `operator`: `AND` | `OR`（複数キーワードの結合方法、省略時は`AND`）
+  - `sortBy`: `relevance` | `submittedDate` | `lastUpdatedDate`（省略時は`relevance`）
+  - `sortOrder`: `descending` | `ascending`（省略時は`descending`）
+- トップページ（`app/page.tsx`）: キーワードを複数追加できる検索フォーム（AND/OR切り替え、並び順選択付き）と、タイトル・著者・公開日・abstractを表示する結果一覧
 
 ## ディレクトリ構成
 
