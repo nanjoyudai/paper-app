@@ -48,16 +48,13 @@ function RelatedPaperList({ title, papers }: { title: string; papers: RelatedPap
   );
 }
 
-export function PaperCard({ paper }: { paper: Paper }) {
+function useExpandableFetch<T>(fetchUrl: (arxivId: string) => string) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [references, setReferences] = useState<RelatedPaper[] | null>(null);
-  const [citations, setCitations] = useState<RelatedPaper[] | null>(null);
+  const [data, setData] = useState<T | null>(null);
 
-  const arxivId = extractArxivId(paper.id);
-
-  async function handleToggle() {
+  async function toggle(arxivId: string | null) {
     if (isExpanded) {
       setIsExpanded(false);
       return;
@@ -65,7 +62,7 @@ export function PaperCard({ paper }: { paper: Paper }) {
 
     setIsExpanded(true);
 
-    if (references !== null || citations !== null) return;
+    if (data !== null) return;
 
     if (!arxivId) {
       setError("この論文のarXiv IDを取得できませんでした");
@@ -76,21 +73,33 @@ export function PaperCard({ paper }: { paper: Paper }) {
     setError(null);
 
     try {
-      const res = await fetch(`/api/citations?arxivId=${encodeURIComponent(arxivId)}`);
-      const data = await res.json();
+      const res = await fetch(fetchUrl(arxivId));
+      const json = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error ?? "引用情報の取得に失敗しました");
+        throw new Error(json.error ?? "取得に失敗しました");
       }
 
-      setReferences(data.references);
-      setCitations(data.citations);
+      setData(json);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "引用情報の取得に失敗しました");
+      setError(err instanceof Error ? err.message : "取得に失敗しました");
     } finally {
       setIsLoading(false);
     }
   }
+
+  return { isExpanded, isLoading, error, data, toggle };
+}
+
+export function PaperCard({ paper }: { paper: Paper }) {
+  const arxivId = extractArxivId(paper.id);
+
+  const citations = useExpandableFetch<{ references: RelatedPaper[]; citations: RelatedPaper[] }>(
+    (id) => `/api/citations?arxivId=${encodeURIComponent(id)}`,
+  );
+  const recommendations = useExpandableFetch<{ recommendations: RelatedPaper[] }>(
+    (id) => `/api/recommendations?arxivId=${encodeURIComponent(id)}`,
+  );
 
   return (
     <li className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
@@ -107,23 +116,52 @@ export function PaperCard({ paper }: { paper: Paper }) {
       </p>
       <p className="mt-3 text-sm leading-6 text-zinc-700 dark:text-zinc-300">{paper.summary}</p>
 
-      <button
-        type="button"
-        onClick={handleToggle}
-        className="mt-3 text-sm font-medium text-zinc-700 hover:underline dark:text-zinc-300"
-      >
-        {isExpanded ? "引用関係を閉じる ▲" : "引用関係を見る ▼"}
-      </button>
+      <div className="mt-3 flex gap-4">
+        <button
+          type="button"
+          onClick={() => citations.toggle(arxivId)}
+          className="text-sm font-medium text-zinc-700 hover:underline dark:text-zinc-300"
+        >
+          {citations.isExpanded ? "引用関係を閉じる ▲" : "引用関係を見る ▼"}
+        </button>
+        <button
+          type="button"
+          onClick={() => recommendations.toggle(arxivId)}
+          className="text-sm font-medium text-zinc-700 hover:underline dark:text-zinc-300"
+        >
+          {recommendations.isExpanded ? "類似論文を閉じる ▲" : "類似論文を見る ▼"}
+        </button>
+      </div>
 
-      {isExpanded && (
+      {citations.isExpanded && (
         <div className="mt-4 flex flex-col gap-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
-          {isLoading && <p className="text-sm text-zinc-500 dark:text-zinc-400">読み込み中...</p>}
-          {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-          {references && citations && (
+          {citations.isLoading && <p className="text-sm text-zinc-500 dark:text-zinc-400">読み込み中...</p>}
+          {citations.error && <p className="text-sm text-red-600 dark:text-red-400">{citations.error}</p>}
+          {citations.data && (
             <>
-              <RelatedPaperList title="この論文が引用している論文（先行研究）" papers={references} />
-              <RelatedPaperList title="この論文を引用している論文（後続研究）" papers={citations} />
+              <RelatedPaperList
+                title="この論文が引用している論文（先行研究）"
+                papers={citations.data.references}
+              />
+              <RelatedPaperList
+                title="この論文を引用している論文（後続研究）"
+                papers={citations.data.citations}
+              />
             </>
+          )}
+        </div>
+      )}
+
+      {recommendations.isExpanded && (
+        <div className="mt-4 flex flex-col gap-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+          {recommendations.isLoading && (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">読み込み中...</p>
+          )}
+          {recommendations.error && (
+            <p className="text-sm text-red-600 dark:text-red-400">{recommendations.error}</p>
+          )}
+          {recommendations.data && (
+            <RelatedPaperList title="類似論文" papers={recommendations.data.recommendations} />
           )}
         </div>
       )}
