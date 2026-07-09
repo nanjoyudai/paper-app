@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Paper } from "../api/search/route";
 import type { RelatedPaper } from "../api/citations/route";
 import { ALLOWED_LIMITS, DEFAULT_LIMIT, type RelatedPapersLimit } from "../api/related-papers-limit";
+import { DEFAULT_SORT_BY, SORT_BY_LABELS, type SortBy } from "../api/related-papers-sort";
 
 function extractArxivId(paperId: string): string | null {
   const match = paperId.match(/abs\/([^/]+)$/);
@@ -27,6 +28,30 @@ function LimitSelect({
       {ALLOWED_LIMITS.map((limit) => (
         <option key={limit} value={limit}>
           上位{limit}件
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function SortBySelect({
+  options,
+  value,
+  onChange,
+}: {
+  options: SortBy[];
+  value: SortBy;
+  onChange: (sortBy: SortBy) => void;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value as SortBy)}
+      className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm text-black dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+    >
+      {options.map((sortBy) => (
+        <option key={sortBy} value={sortBy}>
+          {SORT_BY_LABELS[sortBy]}
         </option>
       ))}
     </select>
@@ -74,18 +99,20 @@ function RelatedPaperList({ title, papers }: { title: string; papers: RelatedPap
   );
 }
 
-function useExpandableFetch<T>(buildUrl: (arxivId: string, limit: RelatedPapersLimit) => string) {
+function useExpandableFetch<T>(
+  buildUrl: (arxivId: string, limit: RelatedPapersLimit, sortBy: SortBy) => string,
+) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<T | null>(null);
 
-  async function fetchData(arxivId: string, limit: RelatedPapersLimit) {
+  async function fetchData(arxivId: string, limit: RelatedPapersLimit, sortBy: SortBy) {
     setIsLoading(true);
     setError(null);
 
     try {
-      const res = await fetch(buildUrl(arxivId, limit));
+      const res = await fetch(buildUrl(arxivId, limit, sortBy));
       const json = await res.json();
 
       if (!res.ok) {
@@ -100,7 +127,7 @@ function useExpandableFetch<T>(buildUrl: (arxivId: string, limit: RelatedPapersL
     }
   }
 
-  function toggle(arxivId: string | null, limit: RelatedPapersLimit) {
+  function toggle(arxivId: string | null, limit: RelatedPapersLimit, sortBy: SortBy) {
     if (isExpanded) {
       setIsExpanded(false);
       return;
@@ -115,28 +142,32 @@ function useExpandableFetch<T>(buildUrl: (arxivId: string, limit: RelatedPapersL
       return;
     }
 
-    fetchData(arxivId, limit);
+    fetchData(arxivId, limit, sortBy);
   }
 
-  function changeLimit(arxivId: string | null, limit: RelatedPapersLimit) {
+  function refetch(arxivId: string | null, limit: RelatedPapersLimit, sortBy: SortBy) {
     if (!arxivId || !isExpanded) return;
-    fetchData(arxivId, limit);
+    fetchData(arxivId, limit, sortBy);
   }
 
-  return { isExpanded, isLoading, error, data, toggle, changeLimit };
+  return { isExpanded, isLoading, error, data, toggle, refetch };
 }
 
 export function PaperCard({ paper }: { paper: Paper }) {
   const arxivId = extractArxivId(paper.id);
 
   const [citationsLimit, setCitationsLimit] = useState<RelatedPapersLimit>(DEFAULT_LIMIT);
+  const [citationsSortBy, setCitationsSortBy] = useState<SortBy>(DEFAULT_SORT_BY);
   const [recommendationsLimit, setRecommendationsLimit] = useState<RelatedPapersLimit>(DEFAULT_LIMIT);
+  const [recommendationsSortBy, setRecommendationsSortBy] = useState<SortBy>("similarity");
 
   const citations = useExpandableFetch<{ references: RelatedPaper[]; citations: RelatedPaper[] }>(
-    (id, limit) => `/api/citations?arxivId=${encodeURIComponent(id)}&limit=${limit}`,
+    (id, limit, sortBy) =>
+      `/api/citations?arxivId=${encodeURIComponent(id)}&limit=${limit}&sortBy=${sortBy}`,
   );
   const recommendations = useExpandableFetch<{ recommendations: RelatedPaper[] }>(
-    (id, limit) => `/api/recommendations?arxivId=${encodeURIComponent(id)}&limit=${limit}`,
+    (id, limit, sortBy) =>
+      `/api/recommendations?arxivId=${encodeURIComponent(id)}&limit=${limit}&sortBy=${sortBy}`,
   );
 
   return (
@@ -157,14 +188,14 @@ export function PaperCard({ paper }: { paper: Paper }) {
       <div className="mt-3 flex flex-wrap items-center gap-4">
         <button
           type="button"
-          onClick={() => citations.toggle(arxivId, citationsLimit)}
+          onClick={() => citations.toggle(arxivId, citationsLimit, citationsSortBy)}
           className="text-sm font-medium text-zinc-700 hover:underline dark:text-zinc-300"
         >
           {citations.isExpanded ? "引用関係を閉じる ▲" : "引用関係を見る ▼"}
         </button>
         <button
           type="button"
-          onClick={() => recommendations.toggle(arxivId, recommendationsLimit)}
+          onClick={() => recommendations.toggle(arxivId, recommendationsLimit, recommendationsSortBy)}
           className="text-sm font-medium text-zinc-700 hover:underline dark:text-zinc-300"
         >
           {recommendations.isExpanded ? "類似論文を閉じる ▲" : "類似論文を見る ▼"}
@@ -173,16 +204,22 @@ export function PaperCard({ paper }: { paper: Paper }) {
 
       {citations.isExpanded && (
         <div className="mt-4 flex flex-col gap-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
-          <div className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
-            被引用数が多い順に
+          <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+            <SortBySelect
+              options={["citationCount", "newest", "oldest"]}
+              value={citationsSortBy}
+              onChange={(sortBy) => {
+                setCitationsSortBy(sortBy);
+                citations.refetch(arxivId, citationsLimit, sortBy);
+              }}
+            />
             <LimitSelect
               value={citationsLimit}
               onChange={(limit) => {
                 setCitationsLimit(limit);
-                citations.changeLimit(arxivId, limit);
+                citations.refetch(arxivId, limit, citationsSortBy);
               }}
             />
-            表示
           </div>
           {citations.isLoading && <p className="text-sm text-zinc-500 dark:text-zinc-400">読み込み中...</p>}
           {citations.error && <p className="text-sm text-red-600 dark:text-red-400">{citations.error}</p>}
@@ -203,13 +240,20 @@ export function PaperCard({ paper }: { paper: Paper }) {
 
       {recommendations.isExpanded && (
         <div className="mt-4 flex flex-col gap-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
-          <div className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
-            表示件数
+          <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+            <SortBySelect
+              options={["similarity", "citationCount", "newest", "oldest"]}
+              value={recommendationsSortBy}
+              onChange={(sortBy) => {
+                setRecommendationsSortBy(sortBy);
+                recommendations.refetch(arxivId, recommendationsLimit, sortBy);
+              }}
+            />
             <LimitSelect
               value={recommendationsLimit}
               onChange={(limit) => {
                 setRecommendationsLimit(limit);
-                recommendations.changeLimit(arxivId, limit);
+                recommendations.refetch(arxivId, limit, recommendationsSortBy);
               }}
             />
           </div>

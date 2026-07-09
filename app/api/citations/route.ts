@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cachedFetch } from "../semantic-scholar-cache";
 import { parseLimit } from "../related-papers-limit";
+import { parseSortBy, type SortBy } from "../related-papers-sort";
 
 const SEMANTIC_SCHOLAR_API_URL = "https://api.semanticscholar.org/graph/v1/paper/arXiv:";
 
@@ -48,23 +49,38 @@ function toRelatedPaper(paper: SemanticScholarPaper): RelatedPaper {
   };
 }
 
-// 被引用数が多い論文ほど重要度が高いと見なし、上位N件だけを残す。
-// その上で見やすさのために公開日の昇順（古い順）に並べ替える。
-function selectMostCitedSortedByDate(papers: RelatedPaper[], limit: number): RelatedPaper[] {
+function compareByDate(a: RelatedPaper, b: RelatedPaper, direction: "asc" | "desc"): number {
+  if (!a.publicationDate) return 1;
+  if (!b.publicationDate) return -1;
+  const diff = a.publicationDate.localeCompare(b.publicationDate);
+  return direction === "asc" ? diff : -diff;
+}
+
+// citationsのデータには類似度がないため、citations一覧では"similarity"は
+// citationCountと同じ扱いにフォールバックする。
+function selectTopN(papers: RelatedPaper[], limit: number, sortBy: SortBy): RelatedPaper[] {
+  if (sortBy === "newest") {
+    return [...papers].sort((a, b) => compareByDate(a, b, "desc")).slice(0, limit);
+  }
+
+  if (sortBy === "oldest") {
+    return [...papers].sort((a, b) => compareByDate(a, b, "asc")).slice(0, limit);
+  }
+
+  // citationCount（デフォルト）・similarity（フォールバック）:
+  // 被引用数が多い論文ほど重要度が高いと見なして上位N件を選び、
+  // 見やすさのために公開日の昇順（古い順）に並べ替える。
   const topByCitationCount = [...papers]
     .sort((a, b) => (b.citationCount ?? 0) - (a.citationCount ?? 0))
     .slice(0, limit);
 
-  return topByCitationCount.sort((a, b) => {
-    if (!a.publicationDate) return 1;
-    if (!b.publicationDate) return -1;
-    return a.publicationDate.localeCompare(b.publicationDate);
-  });
+  return topByCitationCount.sort((a, b) => compareByDate(a, b, "asc"));
 }
 
 export async function GET(request: NextRequest) {
   const arxivId = request.nextUrl.searchParams.get("arxivId")?.trim();
   const limit = parseLimit(request.nextUrl.searchParams.get("limit"));
+  const sortBy = parseSortBy(request.nextUrl.searchParams.get("sortBy"));
 
   if (!arxivId) {
     return NextResponse.json({ error: "arxivIdを指定してください" }, { status: 400 });
@@ -89,8 +105,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "引用情報の取得に失敗しました" }, { status: 502 });
   }
 
-  const references = selectMostCitedSortedByDate((data.references ?? []).map(toRelatedPaper), limit);
-  const citations = selectMostCitedSortedByDate((data.citations ?? []).map(toRelatedPaper), limit);
+  const references = selectTopN((data.references ?? []).map(toRelatedPaper), limit, sortBy);
+  const citations = selectTopN((data.citations ?? []).map(toRelatedPaper), limit, sortBy);
 
   return NextResponse.json({ references, citations });
 }

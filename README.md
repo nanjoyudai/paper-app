@@ -23,7 +23,9 @@ arXivに公開されている論文をキーワードで検索し、タイトル
 - **検索画面はClient Component。** フォーム入力・ローディング・エラー状態を扱うため`app/page.tsx`は`"use client"`にし、`fetch`で自前のAPI Route（`/api/search`）を呼ぶ構成にした。
 - **キーワードは複数入力欄＋AND/OR結合。** 1つの入力欄にスペース区切りで書かせるとarXiv APIのクエリ構文（`AND`/`OR`/`ANDNOT`を明示する必要がある）と食い違うため、キーワードごとに入力欄を分け、`term`パラメータを複数渡してサーバー側で`AND`/`OR`のどちらか一種類の演算子で結合する設計にした。
 - **引用関係（先行研究／後続研究）は1段階のみ表示。** 「研究の系譜」を多段の引用グラフとして再帰的にたどると、外部APIの呼び出し回数が指数的に増えて複雑になるため、まずは選んだ論文が「引用している論文」「引用されている論文」を1段階分だけ日付順（古い順）に表示するスコープに絞った。arXivはAPIとして引用データを持たないため、この部分だけSemantic Scholar APIを別途利用している。
-- **引用関係・類似論文は被引用数が多い順に上位N件へ絞る。** 1つの論文に対して引用/被引用が数十〜数百件になることがあり、そのまま全件出すと読みづらい。「多く引用されている論文ほど重要度が高い可能性が高い」という単純なヒューリスティックで`citationCount`（被引用数）順に上位を選び、選んだ後は表示上わかりやすいように公開日の昇順に並べ替える（`app/api/citations/route.ts`の`selectMostCitedSortedByDate`）。件数（5/10/20/50）はUIから選べるようにし、フロント・API間で許容値を`app/api/related-papers-limit.ts`に1箇所にまとめて共有している。
+- **引用関係・類似論文は上位N件へ絞り、並び替え条件を選べる。** 1つの論文に対して引用/被引用が数十〜数百件になることがあり、そのまま全件出すと読みづらい。デフォルトは「多く引用されている論文ほど重要度が高い可能性が高い」という単純なヒューリスティックで`citationCount`（被引用数）順に上位を選ぶが、それ以外に「新しい順」「古い順」も選べるようにした（`app/api/citations/route.ts`の`selectTopN`、`app/api/related-papers-sort.ts`）。「古い順」はその分野で最初期の研究を見つけるのに、「新しい順」は最新の関連研究を見るのに使える。
+  - 類似論文（recommendations）にはさらに「類似度順」（Semantic Scholarのモデルがもともと返してくる順序、デフォルト）も選べる。ただしcitationCount/新しい順/古い順を選んだ場合は、APIから取得済みの上位`limit`件（類似度順の候補）をその条件で並べ替えるだけで、類似度以外の基準で候補全体から選び直しているわけではない点に注意。
+  - 件数（5/10/20/50）・並び替え条件の許容値は、フロント・両Route Handlerで使う定義をそれぞれ`app/api/related-papers-limit.ts`・`app/api/related-papers-sort.ts`に1箇所にまとめて共有している。
   - 注意点: 「引用している論文（citations側）」を被引用数で絞ると、単に古い論文の方が有利になりやすいバイアスがある。今はシンプルさを優先し、この点は許容している。
 - **Semantic Scholarへのレスポンスはサーバー側でメモリキャッシュする。** 無認証APIはレート制限がかなり低く、同じ論文の引用/類似論文を何度も開閉するだけですぐ429（Too Many Requests）になっていたため、`app/api/semantic-scholar-cache.ts`にURL単位・30分TTLの簡易キャッシュを用意し、citations・recommendations両方のRoute Handlerで共有している。サーバープロセスが再起動すると消える程度の簡素な実装で今は十分。
 - 状態管理はまず素朴に（React標準の`useState`）で組み、複雑化したら都度検討する。
@@ -38,11 +40,13 @@ arXivに公開されている論文をキーワードで検索し、タイトル
 - `GET /api/citations`: Semantic Scholar APIから引用情報を取得するRoute Handler（`app/api/citations/route.ts`）
   - `arxivId`: arXiv ID（例: `2201.00978`、バージョン番号なし）
   - `limit`: `5` | `10` | `20` | `50`（省略時は`5`）
-  - この論文が引用している論文（references）／この論文を引用している論文（citations）を、それぞれ被引用数が多い順に上位`limit`件選んだ上で公開日の昇順（古い順）に並べて返す
+  - `sortBy`: `citationCount` | `newest` | `oldest`（省略時は`citationCount`。`similarity`が来た場合は`citationCount`と同じ扱い）
+  - この論文が引用している論文（references）／この論文を引用している論文（citations）を、それぞれ`sortBy`の基準で上位`limit`件選んで返す（`citationCount`の場合は選んだ後さらに公開日の昇順に並べ替える）
 - `GET /api/recommendations`: Semantic Scholar Recommendations APIから類似論文を取得するRoute Handler（`app/api/recommendations/route.ts`）
   - `arxivId`: arXiv ID
   - `limit`: `5` | `10` | `20` | `50`（省略時は`5`）
-  - 引用関係ではなく、Semantic Scholar側のモデルが算出した「似ている論文」を返す
+  - `sortBy`: `similarity` | `citationCount` | `newest` | `oldest`（省略時は`similarity`）
+  - 引用関係ではなく、Semantic Scholar側のモデルが算出した「似ている論文」を`sortBy`の基準で並べて返す
 - トップページ（`app/page.tsx`）: キーワードを複数追加できる検索フォーム（AND/OR切り替え、並び順選択付き）と、タイトル・著者・公開日・abstract・引用関係／類似論文の開閉ボタンを表示する結果一覧（`app/components/PaperCard.tsx`）
 
 ## ディレクトリ構成
@@ -57,6 +61,7 @@ app/
   api/recommendations/route.ts      Semantic Scholar APIから類似論文を取得するRoute Handler
   api/semantic-scholar-cache.ts     Semantic Scholar APIレスポンスの簡易メモリキャッシュ（両Route Handlerで共有）
   api/related-papers-limit.ts       引用関係・類似論文の表示件数（5/10/20/50）の共有定義
+  api/related-papers-sort.ts        引用関係・類似論文の並び替え条件（被引用数/新しい順/古い順/類似度）の共有定義
 ```
 
 ## 開発の進め方
@@ -112,6 +117,12 @@ app/
 - 対応: 「多く引用されている論文＝重要度が高い可能性が高い」という単純なルールを採用し、Semantic Scholar APIから`citationCount`（被引用数）も取得した上で、被引用数が多い順に上位N件だけを選んでから公開日の昇順で表示するようにした（`app/api/citations/route.ts`の`selectMostCitedSortedByDate`）。
 - 表示件数（5/10/20/50）はUIのセレクトボックスから選べるようにし、citations・recommendations両方のRoute Handlerと画面側で使う許容値の定義を`app/api/related-papers-limit.ts`に集約した。
 - 各論文の横に被引用数も表示し、なぜその論文が選ばれたのかがわかるようにした。
+
+### 2026-07-09: 引用関係・類似論文の並び替え条件（新しい順／古い順／類似度）を追加
+- 動機: 被引用数だけでなく、新しさ・古さ・類似度でも選べるようにしたいという要望を受けた。
+- 引用関係（citations）には「新しい順」「古い順」を追加した（被引用数順がデフォルト）。「類似度」はcitations側のデータには存在しない指標のため選択肢に含めず、選ばれた場合は被引用数順にフォールバックする。
+- 類似論文（recommendations）は元々Semantic Scholarのモデルが類似度順に返してくるため、「類似度順」をデフォルトの選択肢として追加し、それに加えて被引用数順・新しい順・古い順も選べるようにした。ただし後者3つは、すでに取得済みの類似度上位`limit`件を並べ替えているだけで、類似度以外の基準で候補全体から選び直しているわけではない（Semantic Scholar側にそのような検索方法がないため）。
+- 選択肢や表示ラベルの定義を`app/api/related-papers-sort.ts`に集約し、`app/api/citations/route.ts`・`app/api/recommendations/route.ts`・`app/components/PaperCard.tsx`から共有。
 
 ## Getting Started
 
