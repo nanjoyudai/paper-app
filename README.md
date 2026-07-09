@@ -48,6 +48,7 @@ app/
   page.tsx                          トップページ（検索フォーム＋結果一覧、Client Component）
   components/PaperCard.tsx          論文1件の表示（引用関係・類似論文の開閉を含む、Client Component）
   api/search/route.ts               arXiv APIを叩き、JSONを返すRoute Handler
+  api/arxiv-client.ts                arXiv APIへのリクエスト間隔制御・キャッシュ・User-Agent付与
   api/citations/route.ts            Semantic Scholar APIから引用関係を取得するRoute Handler
   api/recommendations/route.ts      Semantic Scholar APIから類似論文を取得するRoute Handler
   api/semantic-scholar-cache.ts     Semantic Scholar APIレスポンスの簡易メモリキャッシュ（両Route Handlerで共有）
@@ -93,6 +94,13 @@ app/
 - 根本対策として、環境変数`SEMANTIC_SCHOLAR_API_KEY`が設定されていればリクエストヘッダ`x-api-key`に載せて送るようにした（`app/api/semantic-scholar-cache.ts`）。無料でキーを取得すれば専用の割り当てになりレート制限が緩和される。
 - 補助的な対策として、429が返ってきた場合は1.5秒待って1回だけ再試行するようにした（瞬間的な混雑だけなら救済できる）。
 - `.env.local.example`を追加し、READMEにキーの取得・設定手順を記載。
+
+### 2026-07-09: arXiv APIのレート制限対策
+- 課題: arXiv APIも短時間に何度も検索すると制限に当たるようになった。arXivの利用規約（1リクエスト3秒間隔、User-Agentで身元を明示）に沿っていなかったのが原因。
+- 対応: `app/api/arxiv-client.ts`を新設し、以下をSemantic Scholarとは別に実装。
+  - リクエストを直列化するキューを持ち、前回のリクエストから3秒経っていなければ待ってから送る（`search`のRoute Handlerから直接`fetch`していたのをこのクライアント経由に変更）。
+  - 検索結果をクエリURL単位でメモリキャッシュ（TTL 10分）。同じ検索条件を繰り返してもAPIは叩かない。
+  - `User-Agent`ヘッダーにアプリ名を含めて送信するようにした（arXiv側からアクセス元を識別できるように）。
 
 ## Getting Started
 

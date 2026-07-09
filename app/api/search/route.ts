@@ -1,5 +1,6 @@
 import { XMLParser } from "fast-xml-parser";
 import { NextRequest, NextResponse } from "next/server";
+import { fetchArxiv } from "../arxiv-client";
 
 const ARXIV_API_URL = "http://export.arxiv.org/api/query";
 
@@ -86,13 +87,12 @@ export async function GET(request: NextRequest) {
     sortOrder,
   });
 
-  const response = await fetch(`${ARXIV_API_URL}?${params.toString()}`);
+  const { ok, xml } = await fetchArxiv(`${ARXIV_API_URL}?${params.toString()}`);
 
-  if (!response.ok) {
+  if (!ok) {
     return NextResponse.json({ error: "arXiv APIへのリクエストに失敗しました" }, { status: 502 });
   }
 
-  const xml = await response.text();
   const parser = new XMLParser();
   const parsed = parser.parse(xml);
 
