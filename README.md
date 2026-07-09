@@ -15,17 +15,22 @@ arXivに公開されている論文をキーワードで検索し、タイトル
 
 ## 設計方針
 
-- **arXiv APIへのリクエストはサーバー側で行う。** arXiv APIはXML(Atom)を返しCORSの制約もあるため、Next.jsのRoute Handler（`app/api/...`）またはServer Componentから取得し、パース済みのデータをクライアントに渡す構成にする。フロントから直接叩かない。
-- **XMLパースには軽量ライブラリを使う想定。**（例: `fast-xml-parser`）
-- 状態管理はまず素朴に（React標準のuseState/Server Component）で組み、複雑化したら都度検討する。
+- **arXiv APIへのリクエストはサーバー側で行う。** arXiv APIはXML(Atom)を返しCORSの制約もあるため、Next.jsのRoute Handler（`app/api/search/route.ts`）で取得・パースし、JSONにしてクライアントに渡す。フロントから直接arXivを叩かない。
+- **XMLパースには`fast-xml-parser`を使用。** 依存が軽く、素直にオブジェクトへ変換できるため採用。
+- **検索画面はClient Component。** フォーム入力・ローディング・エラー状態を扱うため`app/page.tsx`は`"use client"`にし、`fetch`で自前のAPI Route（`/api/search`）を呼ぶ構成にした。
+- 状態管理はまず素朴に（React標準の`useState`）で組み、複雑化したら都度検討する。
 
-## ディレクトリ構成（予定含む）
+## 実装済み機能
+
+- `GET /api/search?q=<キーワード>`: arXiv APIへ`all:<キーワード>`で問い合わせ、関連度順で最大20件を返すRoute Handler（`app/api/search/route.ts`）
+- トップページ（`app/page.tsx`）: 検索フォームと、タイトル・著者・公開日・abstractを表示する結果一覧
+
+## ディレクトリ構成
 
 ```
 app/
-  page.tsx           トップページ（検索フォーム＋結果一覧）
-  api/search/        arXiv APIを叩くRoute Handler（予定）
-  components/        UIコンポーネント（予定）
+  page.tsx                トップページ（検索フォーム＋結果一覧、Client Component）
+  api/search/route.ts     arXiv APIを叩き、JSONを返すRoute Handler
 ```
 
 ## 開発の進め方
