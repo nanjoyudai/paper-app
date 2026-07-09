@@ -3,11 +3,34 @@
 import { useState } from "react";
 import type { Paper } from "../api/search/route";
 import type { RelatedPaper } from "../api/citations/route";
+import { ALLOWED_LIMITS, DEFAULT_LIMIT, type RelatedPapersLimit } from "../api/related-papers-limit";
 
 function extractArxivId(paperId: string): string | null {
   const match = paperId.match(/abs\/([^/]+)$/);
   if (!match) return null;
   return match[1].replace(/v\d+$/, "");
+}
+
+function LimitSelect({
+  value,
+  onChange,
+}: {
+  value: RelatedPapersLimit;
+  onChange: (limit: RelatedPapersLimit) => void;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value) as RelatedPapersLimit)}
+      className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm text-black dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+    >
+      {ALLOWED_LIMITS.map((limit) => (
+        <option key={limit} value={limit}>
+          上位{limit}件
+        </option>
+      ))}
+    </select>
+  );
 }
 
 function RelatedPaperList({ title, papers }: { title: string; papers: RelatedPaper[] }) {
@@ -40,7 +63,10 @@ function RelatedPaperList({ title, papers }: { title: string; papers: RelatedPap
               </a>
             ) : (
               p.title
-            )}
+            )}{" "}
+            <span className="text-zinc-400 dark:text-zinc-500">
+              （被引用数: {p.citationCount ?? "不明"}）
+            </span>
           </li>
         ))}
       </ul>
@@ -48,32 +74,18 @@ function RelatedPaperList({ title, papers }: { title: string; papers: RelatedPap
   );
 }
 
-function useExpandableFetch<T>(fetchUrl: (arxivId: string) => string) {
+function useExpandableFetch<T>(buildUrl: (arxivId: string, limit: RelatedPapersLimit) => string) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<T | null>(null);
 
-  async function toggle(arxivId: string | null) {
-    if (isExpanded) {
-      setIsExpanded(false);
-      return;
-    }
-
-    setIsExpanded(true);
-
-    if (data !== null) return;
-
-    if (!arxivId) {
-      setError("この論文のarXiv IDを取得できませんでした");
-      return;
-    }
-
+  async function fetchData(arxivId: string, limit: RelatedPapersLimit) {
     setIsLoading(true);
     setError(null);
 
     try {
-      const res = await fetch(fetchUrl(arxivId));
+      const res = await fetch(buildUrl(arxivId, limit));
       const json = await res.json();
 
       if (!res.ok) {
@@ -88,17 +100,43 @@ function useExpandableFetch<T>(fetchUrl: (arxivId: string) => string) {
     }
   }
 
-  return { isExpanded, isLoading, error, data, toggle };
+  function toggle(arxivId: string | null, limit: RelatedPapersLimit) {
+    if (isExpanded) {
+      setIsExpanded(false);
+      return;
+    }
+
+    setIsExpanded(true);
+
+    if (data !== null) return;
+
+    if (!arxivId) {
+      setError("この論文のarXiv IDを取得できませんでした");
+      return;
+    }
+
+    fetchData(arxivId, limit);
+  }
+
+  function changeLimit(arxivId: string | null, limit: RelatedPapersLimit) {
+    if (!arxivId || !isExpanded) return;
+    fetchData(arxivId, limit);
+  }
+
+  return { isExpanded, isLoading, error, data, toggle, changeLimit };
 }
 
 export function PaperCard({ paper }: { paper: Paper }) {
   const arxivId = extractArxivId(paper.id);
 
+  const [citationsLimit, setCitationsLimit] = useState<RelatedPapersLimit>(DEFAULT_LIMIT);
+  const [recommendationsLimit, setRecommendationsLimit] = useState<RelatedPapersLimit>(DEFAULT_LIMIT);
+
   const citations = useExpandableFetch<{ references: RelatedPaper[]; citations: RelatedPaper[] }>(
-    (id) => `/api/citations?arxivId=${encodeURIComponent(id)}`,
+    (id, limit) => `/api/citations?arxivId=${encodeURIComponent(id)}&limit=${limit}`,
   );
   const recommendations = useExpandableFetch<{ recommendations: RelatedPaper[] }>(
-    (id) => `/api/recommendations?arxivId=${encodeURIComponent(id)}`,
+    (id, limit) => `/api/recommendations?arxivId=${encodeURIComponent(id)}&limit=${limit}`,
   );
 
   return (
@@ -116,17 +154,17 @@ export function PaperCard({ paper }: { paper: Paper }) {
       </p>
       <p className="mt-3 text-sm leading-6 text-zinc-700 dark:text-zinc-300">{paper.summary}</p>
 
-      <div className="mt-3 flex gap-4">
+      <div className="mt-3 flex flex-wrap items-center gap-4">
         <button
           type="button"
-          onClick={() => citations.toggle(arxivId)}
+          onClick={() => citations.toggle(arxivId, citationsLimit)}
           className="text-sm font-medium text-zinc-700 hover:underline dark:text-zinc-300"
         >
           {citations.isExpanded ? "引用関係を閉じる ▲" : "引用関係を見る ▼"}
         </button>
         <button
           type="button"
-          onClick={() => recommendations.toggle(arxivId)}
+          onClick={() => recommendations.toggle(arxivId, recommendationsLimit)}
           className="text-sm font-medium text-zinc-700 hover:underline dark:text-zinc-300"
         >
           {recommendations.isExpanded ? "類似論文を閉じる ▲" : "類似論文を見る ▼"}
@@ -135,6 +173,17 @@ export function PaperCard({ paper }: { paper: Paper }) {
 
       {citations.isExpanded && (
         <div className="mt-4 flex flex-col gap-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+          <div className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+            被引用数が多い順に
+            <LimitSelect
+              value={citationsLimit}
+              onChange={(limit) => {
+                setCitationsLimit(limit);
+                citations.changeLimit(arxivId, limit);
+              }}
+            />
+            表示
+          </div>
           {citations.isLoading && <p className="text-sm text-zinc-500 dark:text-zinc-400">読み込み中...</p>}
           {citations.error && <p className="text-sm text-red-600 dark:text-red-400">{citations.error}</p>}
           {citations.data && (
@@ -154,6 +203,16 @@ export function PaperCard({ paper }: { paper: Paper }) {
 
       {recommendations.isExpanded && (
         <div className="mt-4 flex flex-col gap-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+          <div className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+            表示件数
+            <LimitSelect
+              value={recommendationsLimit}
+              onChange={(limit) => {
+                setRecommendationsLimit(limit);
+                recommendations.changeLimit(arxivId, limit);
+              }}
+            />
+          </div>
           {recommendations.isLoading && (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">読み込み中...</p>
           )}

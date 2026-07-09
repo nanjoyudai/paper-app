@@ -23,6 +23,8 @@ arXivに公開されている論文をキーワードで検索し、タイトル
 - **検索画面はClient Component。** フォーム入力・ローディング・エラー状態を扱うため`app/page.tsx`は`"use client"`にし、`fetch`で自前のAPI Route（`/api/search`）を呼ぶ構成にした。
 - **キーワードは複数入力欄＋AND/OR結合。** 1つの入力欄にスペース区切りで書かせるとarXiv APIのクエリ構文（`AND`/`OR`/`ANDNOT`を明示する必要がある）と食い違うため、キーワードごとに入力欄を分け、`term`パラメータを複数渡してサーバー側で`AND`/`OR`のどちらか一種類の演算子で結合する設計にした。
 - **引用関係（先行研究／後続研究）は1段階のみ表示。** 「研究の系譜」を多段の引用グラフとして再帰的にたどると、外部APIの呼び出し回数が指数的に増えて複雑になるため、まずは選んだ論文が「引用している論文」「引用されている論文」を1段階分だけ日付順（古い順）に表示するスコープに絞った。arXivはAPIとして引用データを持たないため、この部分だけSemantic Scholar APIを別途利用している。
+- **引用関係・類似論文は被引用数が多い順に上位N件へ絞る。** 1つの論文に対して引用/被引用が数十〜数百件になることがあり、そのまま全件出すと読みづらい。「多く引用されている論文ほど重要度が高い可能性が高い」という単純なヒューリスティックで`citationCount`（被引用数）順に上位を選び、選んだ後は表示上わかりやすいように公開日の昇順に並べ替える（`app/api/citations/route.ts`の`selectMostCitedSortedByDate`）。件数（5/10/20/50）はUIから選べるようにし、フロント・API間で許容値を`app/api/related-papers-limit.ts`に1箇所にまとめて共有している。
+  - 注意点: 「引用している論文（citations側）」を被引用数で絞ると、単に古い論文の方が有利になりやすいバイアスがある。今はシンプルさを優先し、この点は許容している。
 - **Semantic Scholarへのレスポンスはサーバー側でメモリキャッシュする。** 無認証APIはレート制限がかなり低く、同じ論文の引用/類似論文を何度も開閉するだけですぐ429（Too Many Requests）になっていたため、`app/api/semantic-scholar-cache.ts`にURL単位・30分TTLの簡易キャッシュを用意し、citations・recommendations両方のRoute Handlerで共有している。サーバープロセスが再起動すると消える程度の簡素な実装で今は十分。
 - 状態管理はまず素朴に（React標準の`useState`）で組み、複雑化したら都度検討する。
 
@@ -35,10 +37,12 @@ arXivに公開されている論文をキーワードで検索し、タイトル
   - `sortOrder`: `descending` | `ascending`（省略時は`descending`）
 - `GET /api/citations`: Semantic Scholar APIから引用情報を取得するRoute Handler（`app/api/citations/route.ts`）
   - `arxivId`: arXiv ID（例: `2201.00978`、バージョン番号なし）
-  - この論文が引用している論文（references）／この論文を引用している論文（citations）を、それぞれ公開日の昇順（古い順）で返す
+  - `limit`: `5` | `10` | `20` | `50`（省略時は`5`）
+  - この論文が引用している論文（references）／この論文を引用している論文（citations）を、それぞれ被引用数が多い順に上位`limit`件選んだ上で公開日の昇順（古い順）に並べて返す
 - `GET /api/recommendations`: Semantic Scholar Recommendations APIから類似論文を取得するRoute Handler（`app/api/recommendations/route.ts`）
   - `arxivId`: arXiv ID
-  - 引用関係ではなく、Semantic Scholar側のモデルが算出した「似ている論文」を最大10件返す
+  - `limit`: `5` | `10` | `20` | `50`（省略時は`5`）
+  - 引用関係ではなく、Semantic Scholar側のモデルが算出した「似ている論文」を返す
 - トップページ（`app/page.tsx`）: キーワードを複数追加できる検索フォーム（AND/OR切り替え、並び順選択付き）と、タイトル・著者・公開日・abstract・引用関係／類似論文の開閉ボタンを表示する結果一覧（`app/components/PaperCard.tsx`）
 
 ## ディレクトリ構成
@@ -52,6 +56,7 @@ app/
   api/citations/route.ts            Semantic Scholar APIから引用関係を取得するRoute Handler
   api/recommendations/route.ts      Semantic Scholar APIから類似論文を取得するRoute Handler
   api/semantic-scholar-cache.ts     Semantic Scholar APIレスポンスの簡易メモリキャッシュ（両Route Handlerで共有）
+  api/related-papers-limit.ts       引用関係・類似論文の表示件数（5/10/20/50）の共有定義
 ```
 
 ## 開発の進め方
@@ -101,6 +106,12 @@ app/
   - リクエストを直列化するキューを持ち、前回のリクエストから3秒経っていなければ待ってから送る（`search`のRoute Handlerから直接`fetch`していたのをこのクライアント経由に変更）。
   - 検索結果をクエリURL単位でメモリキャッシュ（TTL 10分）。同じ検索条件を繰り返してもAPIは叩かない。
   - `User-Agent`ヘッダーにアプリ名を含めて送信するようにした（arXiv側からアクセス元を識別できるように）。
+
+### 2026-07-09: 引用関係・類似論文を被引用数上位N件に絞る機能を追加
+- 課題: 1つの論文について引用/被引用が数十件以上返ってくることがあり、そのまま全部表示すると読みづらい。
+- 対応: 「多く引用されている論文＝重要度が高い可能性が高い」という単純なルールを採用し、Semantic Scholar APIから`citationCount`（被引用数）も取得した上で、被引用数が多い順に上位N件だけを選んでから公開日の昇順で表示するようにした（`app/api/citations/route.ts`の`selectMostCitedSortedByDate`）。
+- 表示件数（5/10/20/50）はUIのセレクトボックスから選べるようにし、citations・recommendations両方のRoute Handlerと画面側で使う許容値の定義を`app/api/related-papers-limit.ts`に集約した。
+- 各論文の横に被引用数も表示し、なぜその論文が選ばれたのかがわかるようにした。
 
 ## Getting Started
 
