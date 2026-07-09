@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { Paper } from "./api/search/route";
+import { PaperCard } from "./components/PaperCard";
 
 type Operator = "AND" | "OR";
 type SortBy = "relevance" | "lastUpdatedDate" | "submittedDate";
@@ -175,25 +176,7 @@ export default function Home() {
 
         <ul className="flex flex-col gap-6">
           {papers.map((paper) => (
-            <li
-              key={paper.id}
-              className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900"
-            >
-              <a
-                href={paper.link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-lg font-medium text-black hover:underline dark:text-zinc-50"
-              >
-                {paper.title}
-              </a>
-              <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                {paper.authors.join(", ")} ・ {new Date(paper.published).toLocaleDateString("ja-JP")}
-              </p>
-              <p className="mt-3 text-sm leading-6 text-zinc-700 dark:text-zinc-300">
-                {paper.summary}
-              </p>
-            </li>
+            <PaperCard key={paper.id} paper={paper} />
           ))}
         </ul>
 

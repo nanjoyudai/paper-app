@@ -11,7 +11,9 @@ arXivに公開されている論文をキーワードで検索し、タイトル
 - [Next.js](https://nextjs.org)（App Router）
 - TypeScript
 - Tailwind CSS
-- データソース: [arXiv API](https://info.arxiv.org/help/api/index.html)（APIキー不要のXML/Atomフィード）
+- データソース:
+  - [arXiv API](https://info.arxiv.org/help/api/index.html)（APIキー不要のXML/Atomフィード） — 論文検索
+  - [Semantic Scholar Academic Graph API](https://api.semanticscholar.org/api-docs/graph)（APIキー不要、無認証は低レート制限） — 引用関係の取得
 
 ## 設計方針
 
@@ -19,6 +21,7 @@ arXivに公開されている論文をキーワードで検索し、タイトル
 - **XMLパースには`fast-xml-parser`を使用。** 依存が軽く、素直にオブジェクトへ変換できるため採用。
 - **検索画面はClient Component。** フォーム入力・ローディング・エラー状態を扱うため`app/page.tsx`は`"use client"`にし、`fetch`で自前のAPI Route（`/api/search`）を呼ぶ構成にした。
 - **キーワードは複数入力欄＋AND/OR結合。** 1つの入力欄にスペース区切りで書かせるとarXiv APIのクエリ構文（`AND`/`OR`/`ANDNOT`を明示する必要がある）と食い違うため、キーワードごとに入力欄を分け、`term`パラメータを複数渡してサーバー側で`AND`/`OR`のどちらか一種類の演算子で結合する設計にした。
+- **引用関係（先行研究／後続研究）は1段階のみ表示。** 「研究の系譜」を多段の引用グラフとして再帰的にたどると、外部APIの呼び出し回数が指数的に増えて複雑になるため、まずは選んだ論文が「引用している論文」「引用されている論文」を1段階分だけ日付順（古い順）に表示するスコープに絞った。arXivはAPIとして引用データを持たないため、この部分だけSemantic Scholar APIを別途利用している。
 - 状態管理はまず素朴に（React標準の`useState`）で組み、複雑化したら都度検討する。
 
 ## 実装済み機能
@@ -28,14 +31,19 @@ arXivに公開されている論文をキーワードで検索し、タイトル
   - `operator`: `AND` | `OR`（複数キーワードの結合方法、省略時は`AND`）
   - `sortBy`: `relevance` | `submittedDate` | `lastUpdatedDate`（省略時は`relevance`）
   - `sortOrder`: `descending` | `ascending`（省略時は`descending`）
-- トップページ（`app/page.tsx`）: キーワードを複数追加できる検索フォーム（AND/OR切り替え、並び順選択付き）と、タイトル・著者・公開日・abstractを表示する結果一覧
+- `GET /api/citations`: Semantic Scholar APIから引用情報を取得するRoute Handler（`app/api/citations/route.ts`）
+  - `arxivId`: arXiv ID（例: `2201.00978`、バージョン番号なし）
+  - この論文が引用している論文（references）／この論文を引用している論文（citations）を、それぞれ公開日の昇順（古い順）で返す
+- トップページ（`app/page.tsx`）: キーワードを複数追加できる検索フォーム（AND/OR切り替え、並び順選択付き）と、タイトル・著者・公開日・abstract・引用関係の開閉ボタンを表示する結果一覧（`app/components/PaperCard.tsx`）
 
 ## ディレクトリ構成
 
 ```
 app/
-  page.tsx                トップページ（検索フォーム＋結果一覧、Client Component）
-  api/search/route.ts     arXiv APIを叩き、JSONを返すRoute Handler
+  page.tsx                    トップページ（検索フォーム＋結果一覧、Client Component）
+  components/PaperCard.tsx    論文1件の表示（引用関係の開閉を含む、Client Component）
+  api/search/route.ts         arXiv APIを叩き、JSONを返すRoute Handler
+  api/citations/route.ts      Semantic Scholar APIから引用関係を取得するRoute Handler
 ```
 
 ## 開発の進め方
@@ -61,6 +69,12 @@ app/
 - 課題: 1つの入力欄にスペース区切りで複数単語を書かせる方式だと、arXiv APIのクエリ構文（`AND`/`OR`/`ANDNOT`を明示する必要がある）と食い違い、意図通りに絞り込めなかった。
 - 対応: キーワードごとに入力欄を分けて追加できるようにし（`term`パラメータを複数送信）、それらを`AND`/`OR`いずれか一種類の演算子で結合する設計に変更。
 - 並び順（関連度・投稿日・更新日）と昇順/降順をUIから選べるようにし、`sortBy`/`sortOrder`としてAPIに渡すようにした（従来は関連度・降順に固定していた）。
+
+### 2026-07-09: 引用関係（先行研究／後続研究）の表示機能を追加
+- 動機: 類似論文をおすすめする機能の一歩目として、まず「引用構造から研究の前後関係を見えるようにしたい」という要望を受けた。
+- arXiv APIには引用データがないため、Semantic Scholar APIを新たに利用。arXiv IDを渡すと、その論文が引用している論文（references）とその論文を引用している論文（citations）を取得できる。
+- スコープは1段階の引用関係のみとした（多段階の引用グラフをたどると呼び出し回数・複雑さが跳ね上がるため）。取得した一覧は公開日の昇順で並べ、「古い方＝先行研究」が視覚的にわかるようにした。
+- UI側は各論文カードに「引用関係を見る」ボタンを追加し、クリックで開閉・初回クリック時のみAPIを呼ぶ形にした。カード自体のロジックが増えたため、`app/components/PaperCard.tsx`として切り出した。
 
 ## Getting Started
 
