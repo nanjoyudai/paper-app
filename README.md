@@ -88,6 +88,12 @@ app/
 - 課題: 引用関係・類似論文をいくつも開閉して動作確認しているだけで、無認証のSemantic Scholar APIのレート制限（429 Too Many Requests）にすぐ達してしまった。
 - 対応: `app/api/semantic-scholar-cache.ts`にURLをキーにした簡易メモリキャッシュ（TTL 30分）を追加し、citations・recommendations両方のRoute Handlerで共有。同じ論文について短時間に何度も開閉しても実際のAPI呼び出しは1回で済むようにした。
 
+### 2026-07-09: Semantic Scholar APIキー対応・429時の簡易リトライ
+- キャッシュだけでは、まだ見ていない新しい論文を次々開くと結局すぐ429になる問題が残っていた（無認証APIのレート制限はこのアプリ単体の呼び出し回数ではなく、キー未登録の利用者全体で共有されているため）。
+- 根本対策として、環境変数`SEMANTIC_SCHOLAR_API_KEY`が設定されていればリクエストヘッダ`x-api-key`に載せて送るようにした（`app/api/semantic-scholar-cache.ts`）。無料でキーを取得すれば専用の割り当てになりレート制限が緩和される。
+- 補助的な対策として、429が返ってきた場合は1.5秒待って1回だけ再試行するようにした（瞬間的な混雑だけなら救済できる）。
+- `.env.local.example`を追加し、READMEにキーの取得・設定手順を記載。
+
 ## Getting Started
 
 開発サーバーの起動:
@@ -97,6 +103,16 @@ npm run dev
 ```
 
 [http://localhost:3000](http://localhost:3000) をブラウザで開く。
+
+### Semantic Scholar APIキーの設定（推奨）
+
+無認証のSemantic Scholar APIはレート制限がかなり低く、他の利用者とも共有されているため、少し使うだけで「リクエスト上限に達しました」というエラーが出やすい。無料のAPIキーを取得すると専用の割り当てになり緩和される。
+
+1. https://www.semanticscholar.org/product/api#api-key-form から無料申請
+2. `.env.local.example`を`.env.local`にコピーし、発行されたキーを`SEMANTIC_SCHOLAR_API_KEY`に設定
+3. 開発サーバーを再起動
+
+キーがなくても動作はするが、citations/recommendationsで429エラーが出やすい。
 
 ## Learn More
 
