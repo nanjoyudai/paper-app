@@ -1,6 +1,6 @@
 # paper-app
 
-arXiv APIを使って論文を検索・閲覧できるWebアプリ。
+ClodeCodeを用いて作成した、arXiv APIを使って論文を検索・閲覧できるWebアプリ。
 
 ## 目的
 
