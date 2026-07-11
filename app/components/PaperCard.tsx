@@ -245,6 +245,7 @@ export function PaperCard({ paper }: { paper: Paper }) {
           {citations.data && recommendations.data && (
             <RelationMap
               centerTitle={paper.title}
+              centerPublishedDate={paper.published}
               references={citations.data.references}
               citations={citations.data.citations}
               recommendations={recommendations.data.recommendations}
