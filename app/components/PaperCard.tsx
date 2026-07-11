@@ -5,6 +5,7 @@ import type { Paper } from "../api/search/route";
 import type { RelatedPaper } from "../api/citations/route";
 import { ALLOWED_LIMITS, DEFAULT_LIMIT, type RelatedPapersLimit } from "../api/related-papers-limit";
 import { DEFAULT_SORT_BY, SORT_BY_LABELS, type SortBy } from "../api/related-papers-sort";
+import { RelationMap } from "./RelationMap";
 
 function extractArxivId(paperId: string): string | null {
   const match = paperId.match(/abs\/([^/]+)$/);
@@ -106,6 +107,7 @@ function useExpandableFetch<T>(
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<T | null>(null);
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
 
   async function fetchData(arxivId: string, limit: RelatedPapersLimit, sortBy: SortBy) {
     setIsLoading(true);
@@ -120,11 +122,26 @@ function useExpandableFetch<T>(
       }
 
       setData(json);
+      setLoadedKey(`${arxivId}:${limit}:${sortBy}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "取得に失敗しました");
     } finally {
       setIsLoading(false);
     }
+  }
+
+  // 同じ(arxivId, limit, sortBy)の組み合わせで取得済みなら再フェッチしない。
+  // 引用関係・類似論文・関係マップの間でデータを使い回すために使う。
+  function ensureLoaded(arxivId: string | null, limit: RelatedPapersLimit, sortBy: SortBy) {
+    if (!arxivId) {
+      setError("この論文のarXiv IDを取得できませんでした");
+      return;
+    }
+
+    const key = `${arxivId}:${limit}:${sortBy}`;
+    if (data !== null && loadedKey === key) return;
+
+    fetchData(arxivId, limit, sortBy);
   }
 
   function toggle(arxivId: string | null, limit: RelatedPapersLimit, sortBy: SortBy) {
@@ -134,15 +151,7 @@ function useExpandableFetch<T>(
     }
 
     setIsExpanded(true);
-
-    if (data !== null) return;
-
-    if (!arxivId) {
-      setError("この論文のarXiv IDを取得できませんでした");
-      return;
-    }
-
-    fetchData(arxivId, limit, sortBy);
+    ensureLoaded(arxivId, limit, sortBy);
   }
 
   function refetch(arxivId: string | null, limit: RelatedPapersLimit, sortBy: SortBy) {
@@ -150,7 +159,7 @@ function useExpandableFetch<T>(
     fetchData(arxivId, limit, sortBy);
   }
 
-  return { isExpanded, isLoading, error, data, toggle, refetch };
+  return { isExpanded, isLoading, error, data, toggle, refetch, ensureLoaded };
 }
 
 export function PaperCard({ paper }: { paper: Paper }) {
@@ -160,6 +169,7 @@ export function PaperCard({ paper }: { paper: Paper }) {
   const [citationsSortBy, setCitationsSortBy] = useState<SortBy>(DEFAULT_SORT_BY);
   const [recommendationsLimit, setRecommendationsLimit] = useState<RelatedPapersLimit>(DEFAULT_LIMIT);
   const [recommendationsSortBy, setRecommendationsSortBy] = useState<SortBy>("similarity");
+  const [isMapOpen, setIsMapOpen] = useState(false);
 
   const citations = useExpandableFetch<{ references: RelatedPaper[]; citations: RelatedPaper[] }>(
     (id, limit, sortBy) =>
@@ -169,6 +179,19 @@ export function PaperCard({ paper }: { paper: Paper }) {
     (id, limit, sortBy) =>
       `/api/recommendations?arxivId=${encodeURIComponent(id)}&limit=${limit}&sortBy=${sortBy}`,
   );
+
+  // 引用関係・類似論文セクションで既に取得済みのデータがあればそれを再利用し、
+  // なければ現在選択中のlimit/sortByで取得する（マップ専用に新しく取り直さない）。
+  function toggleMap() {
+    if (isMapOpen) {
+      setIsMapOpen(false);
+      return;
+    }
+
+    setIsMapOpen(true);
+    citations.ensureLoaded(arxivId, citationsLimit, citationsSortBy);
+    recommendations.ensureLoaded(arxivId, recommendationsLimit, recommendationsSortBy);
+  }
 
   return (
     <li className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
@@ -200,7 +223,35 @@ export function PaperCard({ paper }: { paper: Paper }) {
         >
           {recommendations.isExpanded ? "類似論文を閉じる ▲" : "類似論文を見る ▼"}
         </button>
+        <button
+          type="button"
+          onClick={toggleMap}
+          className="text-sm font-medium text-zinc-700 hover:underline dark:text-zinc-300"
+        >
+          {isMapOpen ? "関係マップを閉じる ▲" : "関係マップを見る ▼"}
+        </button>
       </div>
+
+      {isMapOpen && (
+        <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+          {(citations.isLoading || recommendations.isLoading) && (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">読み込み中...</p>
+          )}
+          {(citations.error || recommendations.error) && (
+            <p className="text-sm text-red-600 dark:text-red-400">
+              {citations.error || recommendations.error}
+            </p>
+          )}
+          {citations.data && recommendations.data && (
+            <RelationMap
+              centerTitle={paper.title}
+              references={citations.data.references}
+              citations={citations.data.citations}
+              recommendations={recommendations.data.recommendations}
+            />
+          )}
+        </div>
+      )}
 
       {citations.isExpanded && (
         <div className="mt-4 flex flex-col gap-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">

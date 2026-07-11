@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cachedFetch } from "../semantic-scholar-cache";
-import { parseLimit } from "../related-papers-limit";
+import { ALLOWED_LIMITS, parseLimit } from "../related-papers-limit";
 import { parseSortBy } from "../related-papers-sort";
 import type { RelatedPaper } from "../citations/route";
 
@@ -8,6 +8,10 @@ const SEMANTIC_SCHOLAR_RECOMMENDATIONS_URL =
   "https://api.semanticscholar.org/recommendations/v1/papers/forpaper/arXiv:";
 
 const FIELDS = "title,publicationDate,externalIds,citationCount";
+
+// limitの値に関わらず、上限まで一度だけ取得してサーバー側キャッシュに乗せる。
+// 表示件数を切り替えるたびにSemantic Scholarへ再リクエストしないための工夫。
+const MAX_UPSTREAM_LIMIT = Math.max(...ALLOWED_LIMITS);
 
 type RecommendedPaper = {
   title: string;
@@ -37,7 +41,7 @@ export async function GET(request: NextRequest) {
   }
 
   const { status, data } = await cachedFetch<SemanticScholarRecommendationsResponse>(
-    `${SEMANTIC_SCHOLAR_RECOMMENDATIONS_URL}${arxivId}?fields=${FIELDS}&limit=${limit}`,
+    `${SEMANTIC_SCHOLAR_RECOMMENDATIONS_URL}${arxivId}?fields=${FIELDS}&limit=${MAX_UPSTREAM_LIMIT}`,
   );
 
   if (status === 404) {
@@ -63,15 +67,15 @@ export async function GET(request: NextRequest) {
   }));
 
   // Semantic Scholarのrecommendationsは元々「類似度順」に返ってくる。
-  // "similarity"以外が選ばれた場合は、取得済みの候補（上位limit件）をその条件で並べ替える。
-  let recommendations = candidates;
+  // "similarity"以外が選ばれた場合は、取得済みの候補（上位MAX_UPSTREAM_LIMIT件）をその条件で並べ替える。
+  let sorted = candidates;
   if (sortBy === "newest") {
-    recommendations = [...candidates].sort((a, b) => compareByDate(a, b, "desc"));
+    sorted = [...candidates].sort((a, b) => compareByDate(a, b, "desc"));
   } else if (sortBy === "oldest") {
-    recommendations = [...candidates].sort((a, b) => compareByDate(a, b, "asc"));
+    sorted = [...candidates].sort((a, b) => compareByDate(a, b, "asc"));
   } else if (sortBy === "citationCount") {
-    recommendations = [...candidates].sort((a, b) => (b.citationCount ?? 0) - (a.citationCount ?? 0));
+    sorted = [...candidates].sort((a, b) => (b.citationCount ?? 0) - (a.citationCount ?? 0));
   }
 
-  return NextResponse.json({ recommendations });
+  return NextResponse.json({ recommendations: sorted.slice(0, limit) });
 }

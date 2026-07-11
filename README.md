@@ -30,6 +30,9 @@ arXivに公開されている論文をキーワードで検索し、タイトル
   - 件数（5/10/20/50）・並び替え条件の許容値は、フロント・両Route Handlerで使う定義をそれぞれ`app/api/related-papers-limit.ts`・`app/api/related-papers-sort.ts`に1箇所にまとめて共有している。
   - 注意点: 「引用している論文（citations側）」を被引用数で絞ると、単に古い論文の方が有利になりやすいバイアスがある。今はシンプルさを優先し、この点は許容している。
 - **Semantic Scholarへのレスポンスはサーバー側でメモリキャッシュする。** 無認証APIはレート制限がかなり低く、同じ論文の引用/類似論文を何度も開閉するだけですぐ429（Too Many Requests）になっていたため、`app/api/semantic-scholar-cache.ts`にURL単位・30分TTLの簡易キャッシュを用意し、citations・recommendations両方のRoute Handlerで共有している。サーバープロセスが再起動すると消える程度の簡素な実装で今は十分。
+- **recommendationsは常に上限件数まで一度だけ上流を取得する。** 当初は表示件数（`limit`）をそのままSemantic Scholarへのリクエストにも使っていたため、UIで件数を変えるたびに別クエリとして扱われ、キャッシュが効かず何度も外部APIを叩いていた。`limit`に関わらず常に上限（50件）を1回取得してサーバー側キャッシュに乗せ、実際に返す件数はその後ローカルで切り詰めるように変更した（`app/api/recommendations/route.ts`）。これにより「一度取得した情報を覚えておいて、表示件数や並び替えを変えても外部APIを再度叩かない」を徹底している。
+- **画面側でも取得済みデータを使い回す。** 引用関係・類似論文・関係マップ（後述）は同じ論文の同じ`limit`/`sortBy`のデータを必要とすることが多いため、`PaperCard.tsx`の`useExpandableFetch`に`ensureLoaded`を用意し、同一の組み合わせで既に取得済みならfetchし直さないようにした。
+- **関係マップはSVGで自前実装し、ライブラリは追加しない。** 可視化したいのは「選んだ論文を中心に、先行研究・後続研究・類似論文がつながった星型（ego network）」であり、ノード同士の力学的な配置（force-directed layout）は不要。react-force-graphやCytoscape.jsのような専用ライブラリを入れるとSSR対応やバンドルサイズの考慮が増えるため、素のSVGで放射状に配置する実装（`app/components/RelationMap.tsx`）にした。色は`dataviz` skillの検証済みカテゴリカルパレットから3色（青=引用している論文、緑=引用されている論文、黄=類似論文）を採用し、`app/globals.css`にCSS変数として定義してライト/ダークモードに対応させている。
 - 状態管理はまず素朴に（React標準の`useState`）で組み、複雑化したら都度検討する。
 
 ## 実装済み機能
@@ -49,14 +52,16 @@ arXivに公開されている論文をキーワードで検索し、タイトル
   - `limit`: `5` | `10` | `20` | `50`（省略時は`5`）
   - `sortBy`: `similarity` | `citationCount` | `newest` | `oldest`（省略時は`similarity`）
   - 引用関係ではなく、Semantic Scholar側のモデルが算出した「似ている論文」を`sortBy`の基準で並べて返す
-- トップページ（`app/page.tsx`）: キーワードを複数追加できる検索フォーム（AND/OR切り替え、並び順選択付き）と、タイトル・著者・公開日・abstract・引用関係／類似論文の開閉ボタンを表示する結果一覧（`app/components/PaperCard.tsx`）
+- トップページ（`app/page.tsx`）: キーワードを複数追加できる検索フォーム（AND/OR切り替え、並び順選択付き）と、タイトル・著者・公開日・abstract・引用関係／類似論文／関係マップの開閉ボタンを表示する結果一覧（`app/components/PaperCard.tsx`）
+- 関係マップ（`app/components/RelationMap.tsx`）: 選んだ論文を中心に、引用している論文・引用されている論文・類似論文をSVGの放射状レイアウトで可視化。ノードの大きさは被引用数、色はカテゴリを表す。ノードにマウスを乗せるとタイトル・被引用数・日付のツールチップが出て、arXiv IDがあればクリックでその論文のページへ移動する。
 
 ## ディレクトリ構成
 
 ```
 app/
   page.tsx                          トップページ（検索フォーム＋結果一覧、Client Component）
-  components/PaperCard.tsx          論文1件の表示（引用関係・類似論文の開閉を含む、Client Component）
+  components/PaperCard.tsx          論文1件の表示（引用関係・類似論文・関係マップの開閉を含む、Client Component）
+  components/RelationMap.tsx        引用関係・類似論文をSVGで可視化するコンポーネント
   api/search/route.ts               arXiv APIを叩き、JSONを返すRoute Handler
   api/arxiv-client.ts                arXiv APIへのリクエスト間隔制御・キャッシュ・User-Agent付与
   api/citations/route.ts            Semantic Scholar APIから引用関係を取得するRoute Handler
@@ -129,6 +134,12 @@ app/
 ### 2026-07-11: Vercelへデプロイ
 - ローカルの`npm run dev`でしか動かせない状態だったのを、Vercel（Next.jsを作っている会社自身のホスティングサービス）で公開した。`vercel --prod`でビルド〜公開まで自動化される。
 - 注意点: `app/api/arxiv-client.ts`・`app/api/semantic-scholar-cache.ts`のキャッシュ／レート制限キューはサーバーのメモリ上に持つ簡易実装。Vercelのようなサーバーレス環境ではリクエストごとに別インスタンスが使われることがあり、ローカルほど確実には効かない可能性がある。今のところ動作に支障は出ていないため、様子を見ながら必要なら外部ストレージ（Redisなど）への移行を検討する。
+
+### 2026-07-11: 関係マップ（可視化）を追加、recommendationsの取得を効率化
+- 動機: 引用関係・類似論文をリストで見るだけでなく、選んだ論文を中心にした関係性を図として見たいという要望を受けた。
+- `app/components/RelationMap.tsx`を新設し、素のSVGで放射状のネットワーク図（選んだ論文が中心、周囲に引用している論文／引用されている論文／類似論文）を描画するようにした。専用ライブラリ（react-force-graphなど）は導入せず、星型トポロジーなので力学シミュレーションは不要と判断した。色は`dataviz` skillの検証済みパレットから3色選び、`app/globals.css`にCSS変数として定義（ライト/ダークモード対応・カラーバリア検証済み）。
+- 課題: 「なるべく多くの情報を取得しつつ、一度取得した情報は覚えておいて外部APIへの接続を減らしたい」という要望があった。調べると`app/api/recommendations/route.ts`は表示件数（`limit`）をそのままSemantic Scholarへのリクエストに使っており、UIで件数を変えるたびに別クエリとして扱われてキャッシュが効いていなかった（citationsの方は元々全件取得してからローカルで絞り込む設計だったため、この問題はなかった）。
+- 対応: recommendationsも`limit`に関わらず常に上限（50件）を1回だけ上流から取得してキャッシュし、実際の表示件数はその後ローカルで切り詰めるように変更。加えて`PaperCard.tsx`の`useExpandableFetch`に`ensureLoaded`を追加し、引用関係・類似論文・関係マップの間で同じ(論文, 件数, 並び順)の組み合わせなら画面側でも取得済みデータを使い回すようにした。関係マップを開くときも、既に引用関係／類似論文セクションを開いていればそのデータをそのまま使う。
 
 ## Getting Started
 

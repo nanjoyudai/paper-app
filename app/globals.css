@@ -12,10 +12,25 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* 関係マップ（RelationMap）の配色。dataviz skillの検証済みカテゴリカルパレットから
+   3スロット（blue/aqua/yellow）を使用。中心ノードはテキストと同じ色。 */
+:root {
+  --relation-map-reference: #2a78d6;
+  --relation-map-citation: #1baf7a;
+  --relation-map-recommendation: #eda100;
+  --relation-map-center: #171717;
+  --relation-map-surface: #fcfcfb;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    --relation-map-reference: #3987e5;
+    --relation-map-citation: #199e70;
+    --relation-map-recommendation: #c98500;
+    --relation-map-center: #ededed;
+    --relation-map-surface: #1a1a19;
   }
 }
 
