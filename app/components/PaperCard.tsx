@@ -59,6 +59,25 @@ function SortBySelect({
   );
 }
 
+function RateLimitNotice({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+      <p>Semantic Scholarが混み合っていて、一時的に取得できませんでした。</p>
+      <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+        少し待ってから再試行するか、無料のAPIキーを設定すると起きにくくなります（READMEの「Semantic
+        Scholar APIキーの設定」を参照）。
+      </p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-2 rounded-md border border-amber-400 px-2 py-1 text-xs font-medium hover:bg-amber-100 dark:border-amber-700 dark:hover:bg-amber-900"
+      >
+        再試行する
+      </button>
+    </div>
+  );
+}
+
 function RelatedPaperList({ title, papers }: { title: string; papers: RelatedPaper[] }) {
   if (papers.length === 0) {
     return (
@@ -106,16 +125,23 @@ function useExpandableFetch<T>(
   const [isExpanded, setIsExpanded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<number | null>(null);
   const [data, setData] = useState<T | null>(null);
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  const [lastParams, setLastParams] = useState<
+    { arxivId: string; limit: RelatedPapersLimit; sortBy: SortBy } | null
+  >(null);
 
   async function fetchData(arxivId: string, limit: RelatedPapersLimit, sortBy: SortBy) {
     setIsLoading(true);
     setError(null);
+    setStatus(null);
+    setLastParams({ arxivId, limit, sortBy });
 
     try {
       const res = await fetch(buildUrl(arxivId, limit, sortBy));
       const json = await res.json();
+      setStatus(res.status);
 
       if (!res.ok) {
         throw new Error(json.error ?? "取得に失敗しました");
@@ -128,6 +154,11 @@ function useExpandableFetch<T>(
     } finally {
       setIsLoading(false);
     }
+  }
+
+  function retry() {
+    if (!lastParams) return;
+    fetchData(lastParams.arxivId, lastParams.limit, lastParams.sortBy);
   }
 
   // 同じ(arxivId, limit, sortBy)の組み合わせで取得済みなら再フェッチしない。
@@ -159,7 +190,7 @@ function useExpandableFetch<T>(
     fetchData(arxivId, limit, sortBy);
   }
 
-  return { isExpanded, isLoading, error, data, toggle, refetch, ensureLoaded };
+  return { isExpanded, isLoading, error, status, data, toggle, refetch, ensureLoaded, retry };
 }
 
 export function PaperCard({
@@ -243,10 +274,13 @@ export function PaperCard({
           {(citations.isLoading || recommendations.isLoading) && (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">読み込み中...</p>
           )}
-          {(citations.error || recommendations.error) && (
-            <p className="text-sm text-red-600 dark:text-red-400">
-              {citations.error || recommendations.error}
-            </p>
+          {citations.status === 429 && <RateLimitNotice onRetry={citations.retry} />}
+          {recommendations.status === 429 && <RateLimitNotice onRetry={recommendations.retry} />}
+          {citations.error && citations.status !== 429 && (
+            <p className="text-sm text-red-600 dark:text-red-400">{citations.error}</p>
+          )}
+          {recommendations.error && recommendations.status !== 429 && (
+            <p className="text-sm text-red-600 dark:text-red-400">{recommendations.error}</p>
           )}
           {citations.data && recommendations.data && (
             <RelationMap
@@ -281,7 +315,10 @@ export function PaperCard({
             />
           </div>
           {citations.isLoading && <p className="text-sm text-zinc-500 dark:text-zinc-400">読み込み中...</p>}
-          {citations.error && <p className="text-sm text-red-600 dark:text-red-400">{citations.error}</p>}
+          {citations.status === 429 && <RateLimitNotice onRetry={citations.retry} />}
+          {citations.error && citations.status !== 429 && (
+            <p className="text-sm text-red-600 dark:text-red-400">{citations.error}</p>
+          )}
           {citations.data && (
             <>
               <RelatedPaperList
@@ -319,7 +356,8 @@ export function PaperCard({
           {recommendations.isLoading && (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">読み込み中...</p>
           )}
-          {recommendations.error && (
+          {recommendations.status === 429 && <RateLimitNotice onRetry={recommendations.retry} />}
+          {recommendations.error && recommendations.status !== 429 && (
             <p className="text-sm text-red-600 dark:text-red-400">{recommendations.error}</p>
           )}
           {recommendations.data && (
