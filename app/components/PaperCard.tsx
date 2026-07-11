@@ -162,7 +162,13 @@ function useExpandableFetch<T>(
   return { isExpanded, isLoading, error, data, toggle, refetch, ensureLoaded };
 }
 
-export function PaperCard({ paper }: { paper: Paper }) {
+export function PaperCard({
+  paper,
+  onSelectPaper,
+}: {
+  paper: Paper;
+  onSelectPaper: (title: string) => void;
+}) {
   const arxivId = extractArxivId(paper.id);
 
   const [citationsLimit, setCitationsLimit] = useState<RelatedPapersLimit>(DEFAULT_LIMIT);
@@ -249,6 +255,7 @@ export function PaperCard({ paper }: { paper: Paper }) {
               references={citations.data.references}
               citations={citations.data.citations}
               recommendations={recommendations.data.recommendations}
+              onSelectPaper={onSelectPaper}
             />
           )}
         </div>

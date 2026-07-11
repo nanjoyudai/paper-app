@@ -40,9 +40,8 @@ export default function Home() {
     setTerms((prev) => prev.filter((_, i) => i !== index));
   }
 
-  async function handleSearch(e: React.FormEvent) {
-    e.preventDefault();
-    const filledTerms = terms.map((t) => t.trim()).filter((t) => t.length > 0);
+  async function runSearch(searchTerms: string[]) {
+    const filledTerms = searchTerms.map((t) => t.trim()).filter((t) => t.length > 0);
     if (filledTerms.length === 0) return;
 
     setIsLoading(true);
@@ -69,6 +68,18 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
+  }
+
+  async function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    await runSearch(terms);
+  }
+
+  // 関係マップのノードをクリックしたときに、その論文のタイトルでこのサイト内を検索し直す。
+  function searchForPaper(title: string) {
+    setTerms([title]);
+    runSearch([title]);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   return (
@@ -176,7 +187,7 @@ export default function Home() {
 
         <ul className="flex flex-col gap-6">
           {papers.map((paper) => (
-            <PaperCard key={paper.id} paper={paper} />
+            <PaperCard key={paper.id} paper={paper} onSelectPaper={searchForPaper} />
           ))}
         </ul>
 
