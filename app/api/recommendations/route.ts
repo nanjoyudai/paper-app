@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cachedFetch } from "../semantic-scholar-cache";
 import { ALLOWED_LIMITS, parseLimit } from "../related-papers-limit";
-import { parseSortBy } from "../related-papers-sort";
+import { citationsPerYearScore, parseSortBy } from "../related-papers-sort";
 import type { RelatedPaper } from "../citations/route";
 
 const SEMANTIC_SCHOLAR_RECOMMENDATIONS_URL =
@@ -75,6 +75,12 @@ export async function GET(request: NextRequest) {
     sorted = [...candidates].sort((a, b) => compareByDate(a, b, "asc"));
   } else if (sortBy === "citationCount") {
     sorted = [...candidates].sort((a, b) => (b.citationCount ?? 0) - (a.citationCount ?? 0));
+  } else if (sortBy === "citationsPerYear") {
+    sorted = [...candidates].sort(
+      (a, b) =>
+        citationsPerYearScore(b.citationCount, b.publicationDate) -
+        citationsPerYearScore(a.citationCount, a.publicationDate),
+    );
   }
 
   return NextResponse.json({ recommendations: sorted.slice(0, limit) });

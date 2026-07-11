@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cachedFetch } from "../semantic-scholar-cache";
 import { parseLimit } from "../related-papers-limit";
-import { parseSortBy, type SortBy } from "../related-papers-sort";
+import { citationsPerYearScore, parseSortBy, type SortBy } from "../related-papers-sort";
 
 const SEMANTIC_SCHOLAR_API_URL = "https://api.semanticscholar.org/graph/v1/paper/arXiv:";
 
@@ -65,6 +65,18 @@ function selectTopN(papers: RelatedPaper[], limit: number, sortBy: SortBy): Rela
 
   if (sortBy === "oldest") {
     return [...papers].sort((a, b) => compareByDate(a, b, "asc")).slice(0, limit);
+  }
+
+  if (sortBy === "citationsPerYear") {
+    const topByRate = [...papers]
+      .sort(
+        (a, b) =>
+          citationsPerYearScore(b.citationCount, b.publicationDate) -
+          citationsPerYearScore(a.citationCount, a.publicationDate),
+      )
+      .slice(0, limit);
+
+    return topByRate.sort((a, b) => compareByDate(a, b, "asc"));
   }
 
   // citationCount（デフォルト）・similarity（フォールバック）:

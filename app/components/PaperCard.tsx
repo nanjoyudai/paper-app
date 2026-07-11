@@ -299,7 +299,7 @@ export function PaperCard({
         <div className="mt-4 flex flex-col gap-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
           <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
             <SortBySelect
-              options={["citationCount", "newest", "oldest"]}
+              options={["citationCount", "citationsPerYear", "newest", "oldest"]}
               value={citationsSortBy}
               onChange={(sortBy) => {
                 setCitationsSortBy(sortBy);
@@ -338,7 +338,7 @@ export function PaperCard({
         <div className="mt-4 flex flex-col gap-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
           <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
             <SortBySelect
-              options={["similarity", "citationCount", "newest", "oldest"]}
+              options={["similarity", "citationCount", "citationsPerYear", "newest", "oldest"]}
               value={recommendationsSortBy}
               onChange={(sortBy) => {
                 setRecommendationsSortBy(sortBy);

@@ -125,13 +125,16 @@ export function RelationMap({
   const rankOf = new Map(uniqueSortedDates.map((d, i) => [d, i]));
   const maxRank = Math.max(uniqueSortedDates.length - 1, 1);
 
+  // まず見積もりの高さ（basePlotHeight）でランク位置を計算する。実際の描画高さ
+  // （viewBoxHeight）は、deoverlapYで押し出された後の実際のY座標の最大値から
+  // 後述で算出し直す。同じ日付にノードが集中して見積もりを超えて押し出されても、
+  // キャンバスからはみ出して見切れることがないようにするため。
   const maxLaneCount = Math.max(...categories.map((c) => c.papers.length));
-  const plotHeight = Math.max(MIN_PLOT_HEIGHT, maxLaneCount * MIN_NODE_GAP);
-  const viewBoxHeight = MARGIN_TOP + plotHeight + NO_DATE_GAP + MARGIN_BOTTOM;
+  const basePlotHeight = Math.max(MIN_PLOT_HEIGHT, maxLaneCount * MIN_NODE_GAP);
 
   function yForDate(dateStr: string | null): number {
-    if (!dateStr || !rankOf.has(dateStr)) return MARGIN_TOP + plotHeight + NO_DATE_GAP / 2;
-    return MARGIN_TOP + (rankOf.get(dateStr)! / maxRank) * plotHeight;
+    if (!dateStr || !rankOf.has(dateStr)) return MARGIN_TOP + basePlotHeight + NO_DATE_GAP / 2;
+    return MARGIN_TOP + (rankOf.get(dateStr)! / maxRank) * basePlotHeight;
   }
 
   const nodes = categories.flatMap((category) => {
@@ -147,6 +150,13 @@ export function RelationMap({
       r: nodeRadius(paper.citationCount),
     }));
   });
+
+  const plotHeight = basePlotHeight;
+  const maxNodeBottom = nodes.reduce((max, n) => Math.max(max, n.y + n.r), MARGIN_TOP + plotHeight);
+  const viewBoxHeight = Math.max(
+    MARGIN_TOP + plotHeight + NO_DATE_GAP + MARGIN_BOTTOM,
+    maxNodeBottom + MARGIN_BOTTOM,
+  );
 
   const centerY = yForDate(centerPublishedDate);
   const tickIndices = Array.from({ length: DATE_TICK_COUNT }, (_, i) =>
@@ -192,105 +202,132 @@ export function RelationMap({
         丸をクリックするとこのサイトでその論文を検索、論文名をクリックするとarXivのページを開きます。
       </p>
 
-      <svg
-        viewBox={`0 0 ${VIEWBOX_WIDTH} ${viewBoxHeight}`}
-        className="w-full max-w-3xl"
-        role="img"
-        aria-label={`「${centerTitle}」を中心にした、発表時期を縦軸にした引用・類似関係のマップ`}
-      >
-        {categories.map((c) => (
-          <text
-            key={`header-${c.key}`}
-            x={c.laneX}
-            y={MARGIN_TOP - 32}
-            textAnchor="middle"
-            className="fill-zinc-500 dark:fill-zinc-400"
-            fontSize={11}
-          >
-            {c.key === "reference" ? "先行研究" : c.key === "citation" ? "後続研究" : "類似論文"}
-          </text>
-        ))}
-
-        <line
-          x1={AXIS_X}
-          y1={MARGIN_TOP}
-          x2={AXIS_X}
-          y2={MARGIN_TOP + plotHeight}
-          className="stroke-zinc-300 dark:stroke-zinc-700"
-          strokeWidth={1}
-        />
-        {dateTicks.map((tick, i) => (
-          <g key={i}>
-            <line
-              x1={AXIS_X - 4}
-              y1={tick.y}
-              x2={AXIS_X}
-              y2={tick.y}
-              className="stroke-zinc-300 dark:stroke-zinc-700"
-              strokeWidth={1}
-            />
-            <text x={AXIS_X - 8} y={tick.y + 3} textAnchor="end" className="fill-zinc-400 dark:fill-zinc-500" fontSize={9}>
-              {tick.label}
+      {/* SVGを画面幅に合わせて縮小させず、狭い画面では横スクロールで読めるようにする。 */}
+      <div className="overflow-x-auto">
+        <svg
+          viewBox={`0 0 ${VIEWBOX_WIDTH} ${viewBoxHeight}`}
+          width={VIEWBOX_WIDTH}
+          height={viewBoxHeight}
+          style={{ minWidth: VIEWBOX_WIDTH }}
+          role="img"
+          aria-label={`「${centerTitle}」を中心にした、発表時期を縦軸にした引用・類似関係のマップ`}
+        >
+          {categories.map((c) => (
+            <text
+              key={`header-${c.key}`}
+              x={c.laneX}
+              y={MARGIN_TOP - 32}
+              textAnchor="middle"
+              className="fill-zinc-500 dark:fill-zinc-400"
+              fontSize={11}
+            >
+              {c.key === "reference" ? "先行研究" : c.key === "citation" ? "後続研究" : "類似論文"}
             </text>
-          </g>
-        ))}
-        <line
-          x1={AXIS_X}
-          y1={MARGIN_TOP + plotHeight + 10}
-          x2={AXIS_X}
-          y2={MARGIN_TOP + plotHeight + NO_DATE_GAP}
-          className="stroke-zinc-200 dark:stroke-zinc-800"
-          strokeWidth={1}
-          strokeDasharray="2 2"
-        />
-        <text
-          x={AXIS_X - 8}
-          y={MARGIN_TOP + plotHeight + NO_DATE_GAP / 2 + 3}
-          textAnchor="end"
-          className="fill-zinc-400 dark:fill-zinc-500"
-          fontSize={9}
-        >
-          日付不明
-        </text>
+          ))}
 
-        <line
-          x1={LANE_XS[0] - 20}
-          y1={centerY}
-          x2={LANE_XS[2] + 20}
-          y2={centerY}
-          stroke="var(--relation-map-center)"
-          strokeWidth={1.5}
-          strokeDasharray="4 3"
-        />
-        <text
-          x={LANE_XS[1]}
-          y={centerY - 8}
-          textAnchor="middle"
-          className="fill-zinc-900 dark:fill-zinc-50"
-          fontSize={12}
-          fontWeight={600}
-        >
-          {truncate(centerTitle, 44)}
-        </text>
-
-        {nodes.map((node) => (
-          <g
-            key={node.key}
-            opacity={hovered === null || hovered.key === node.key ? 1 : 0.35}
-            onMouseEnter={(e) => showTooltip(node, e)}
-            onMouseMove={(e) => showTooltip(node, e)}
-            onMouseLeave={() => setHovered(null)}
+          <line
+            x1={AXIS_X}
+            y1={MARGIN_TOP}
+            x2={AXIS_X}
+            y2={MARGIN_TOP + plotHeight}
+            className="stroke-zinc-300 dark:stroke-zinc-700"
+            strokeWidth={1}
+          />
+          {dateTicks.map((tick, i) => (
+            <g key={i}>
+              <line
+                x1={AXIS_X - 4}
+                y1={tick.y}
+                x2={AXIS_X}
+                y2={tick.y}
+                className="stroke-zinc-300 dark:stroke-zinc-700"
+                strokeWidth={1}
+              />
+              <text
+                x={AXIS_X - 8}
+                y={tick.y + 3}
+                textAnchor="end"
+                className="fill-zinc-400 dark:fill-zinc-500"
+                fontSize={9}
+              >
+                {tick.label}
+              </text>
+            </g>
+          ))}
+          <line
+            x1={AXIS_X}
+            y1={MARGIN_TOP + plotHeight + 10}
+            x2={AXIS_X}
+            y2={MARGIN_TOP + plotHeight + NO_DATE_GAP}
+            className="stroke-zinc-200 dark:stroke-zinc-800"
+            strokeWidth={1}
+            strokeDasharray="2 2"
+          />
+          <text
+            x={AXIS_X - 8}
+            y={MARGIN_TOP + plotHeight + NO_DATE_GAP / 2 + 3}
+            textAnchor="end"
+            className="fill-zinc-400 dark:fill-zinc-500"
+            fontSize={9}
           >
-            <circle
-              cx={node.x}
-              cy={node.y}
-              r={node.r}
-              fill={node.category.color}
-              className="cursor-pointer"
-              onClick={() => onSelectPaper(node.paper.title)}
-            />
-            {node.paper.arxivId ? (
-              <a href={`https://arxiv.org/abs/${node.paper.arxivId}`} target="_blank" rel="noopener noreferrer">
+            日付不明
+          </text>
+
+          <line
+            x1={LANE_XS[0] - 20}
+            y1={centerY}
+            x2={LANE_XS[2] + 20}
+            y2={centerY}
+            stroke="var(--relation-map-center)"
+            strokeWidth={1.5}
+            strokeDasharray="4 3"
+          />
+          <text
+            x={LANE_XS[1]}
+            y={centerY - 8}
+            textAnchor="middle"
+            className="fill-zinc-900 dark:fill-zinc-50"
+            fontSize={12}
+            fontWeight={600}
+          >
+            {truncate(centerTitle, 44)}
+          </text>
+
+          {nodes.map((node) => (
+            <g
+              key={node.key}
+              opacity={hovered === null || hovered.key === node.key ? 1 : 0.35}
+              onMouseEnter={(e) => showTooltip(node, e)}
+              onMouseMove={(e) => showTooltip(node, e)}
+              onMouseLeave={() => setHovered(null)}
+            >
+              <circle
+                cx={node.x}
+                cy={node.y}
+                r={node.r}
+                fill={node.category.color}
+                className="cursor-pointer"
+                onClick={() => onSelectPaper(node.paper.title)}
+              />
+              {node.paper.arxivId ? (
+                <a href={`https://arxiv.org/abs/${node.paper.arxivId}`} target="_blank" rel="noopener noreferrer">
+                  <text
+                    x={
+                      node.category.labelAnchor === "end"
+                        ? node.x - node.r - 6
+                        : node.category.labelAnchor === "start"
+                          ? node.x + node.r + 6
+                          : node.x
+                    }
+                    y={node.y - node.r - 4}
+                    textAnchor={node.category.labelAnchor}
+                    className="fill-zinc-600 hover:underline dark:fill-zinc-400"
+                    fontSize={10}
+                  >
+                    {truncate(node.paper.title, 26)}
+                  </text>
+                </a>
+              ) : (
                 <text
                   x={
                     node.category.labelAnchor === "end"
@@ -301,32 +338,16 @@ export function RelationMap({
                   }
                   y={node.y - node.r - 4}
                   textAnchor={node.category.labelAnchor}
-                  className="fill-zinc-600 hover:underline dark:fill-zinc-400"
+                  className="fill-zinc-600 dark:fill-zinc-400"
                   fontSize={10}
                 >
                   {truncate(node.paper.title, 26)}
                 </text>
-              </a>
-            ) : (
-              <text
-                x={
-                  node.category.labelAnchor === "end"
-                    ? node.x - node.r - 6
-                    : node.category.labelAnchor === "start"
-                      ? node.x + node.r + 6
-                      : node.x
-                }
-                y={node.y - node.r - 4}
-                textAnchor={node.category.labelAnchor}
-                className="fill-zinc-600 dark:fill-zinc-400"
-                fontSize={10}
-              >
-                {truncate(node.paper.title, 26)}
-              </text>
-            )}
-          </g>
-        ))}
-      </svg>
+              )}
+            </g>
+          ))}
+        </svg>
+      </div>
 
       {hovered && (
         <div
