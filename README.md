@@ -36,16 +36,19 @@ arXivに公開されている論文をキーワードで検索し、タイトル
   - **Next.jsのData Cacheも併用**: `fetch`に`next: { revalidate }`を指定し、Vercelのサーバーレス環境でインスタンスをまたいでもキャッシュが多少なりとも効くようにした（自前のメモリキャッシュはインスタンスごとにリセットされてしまうため）。
 - **recommendationsは常に上限件数まで一度だけ上流を取得する。** 当初は表示件数（`limit`）をそのままSemantic Scholarへのリクエストにも使っていたため、UIで件数を変えるたびに別クエリとして扱われ、キャッシュが効かず何度も外部APIを叩いていた。`limit`に関わらず常に上限（50件）を1回取得してサーバー側キャッシュに乗せ、実際に返す件数はその後ローカルで切り詰めるように変更した（`app/api/recommendations/route.ts`）。これにより「一度取得した情報を覚えておいて、表示件数や並び替えを変えても外部APIを再度叩かない」を徹底している。
 - **画面側でも取得済みデータを使い回す。** 引用関係・類似論文・関係マップ（後述）は同じ論文の同じ`limit`/`sortBy`のデータを必要とすることが多いため、`PaperCard.tsx`の`useExpandableFetch`に`ensureLoaded`を用意し、同一の組み合わせで既に取得済みならfetchし直さないようにした。
-- **関係マップはSVGで自前実装し、ライブラリは追加しない。** 可視化したいのは「選んだ論文を中心に、先行研究・後続研究・類似論文がつながった星型（ego network）」であり、ノード同士の力学的な配置（force-directed layout）は不要。react-force-graphやCytoscape.jsのような専用ライブラリを入れるとSSR対応やバンドルサイズの考慮が増えるため、素のSVGで放射状に配置する実装（`app/components/RelationMap.tsx`）にした。色は`dataviz` skillの検証済みカテゴリカルパレットから3色（青=引用している論文、緑=引用されている論文、黄=類似論文）を採用し、`app/globals.css`にCSS変数として定義してライト/ダークモードに対応させている。
+- **関係マップはSVGで自前実装し、ライブラリは追加しない。** 可視化したいのは「選んだ論文を中心に、先行研究・後続研究・類似論文がつながった星型（ego network）」であり、ノード同士の力学的な配置（force-directed layout）は不要。react-force-graphやCytoscape.jsのような専用ライブラリを入れるとSSR対応やバンドルサイズの考慮が増えるため、素のSVGで実装（`app/components/RelationMap.tsx`）した。縦軸は発表時期（時系列レイアウト）、色は`dataviz` skillの検証済みカテゴリカルパレットから3色（青=引用している論文、緑=引用されている論文、黄=類似論文）を採用し、`app/globals.css`にCSS変数として定義してライト/ダークモードに対応させている。近い時期の論文はグループ化して横に並べ、先行研究/後続研究は選んだ論文の発表時期を表す基準線を絶対に越えないよう配置している（詳細は変更履歴を参照）。
+- **APIルートには簡易的な同一オリジンチェックを入れている。** `/api/search`・`/api/citations`・`/api/recommendations`は誰でも直接叩けるURLのため、他サイトに埋め込まれてブラウザ経由で大量にアクセスされると、こちらのarXivへのリクエスト枠やSemantic ScholarのAPIキー割り当てが消費されてしまう。`app/api/require-same-origin.ts`でOriginヘッダーが自ドメインと一致しない場合は403を返すようにした。ブラウザ以外からのリクエスト（curlやサーバー間通信）はOriginを送らないことが多く判定できないため許可しており、強固な認証ではなく簡易的な抑止策という位置づけ。
 - 状態管理はまず素朴に（React標準の`useState`）で組み、複雑化したら都度検討する。
 
 ## 実装済み機能
 
-- `GET /api/search`: arXiv APIへ問い合わせ、最大20件を返すRoute Handler（`app/api/search/route.ts`）
+- `GET /api/search`: arXiv APIへ問い合わせ、1ページ20件を返すRoute Handler（`app/api/search/route.ts`）
   - `term`: 検索キーワード（複数指定可、例: `term=quantum&term=computing`）
   - `operator`: `AND` | `OR`（複数キーワードの結合方法、省略時は`AND`）
   - `sortBy`: `relevance` | `submittedDate` | `lastUpdatedDate`（省略時は`relevance`）
   - `sortOrder`: `descending` | `ascending`（省略時は`descending`）
+  - `start`: 何件目から取得するか（省略時は`0`、ページネーション用）
+  - レスポンスに`totalResults`（検索条件に一致する全件数）も含み、画面側で「もっと読み込む」の要否を判断する
 - `GET /api/citations`: Semantic Scholar APIから引用情報を取得するRoute Handler（`app/api/citations/route.ts`）
   - `arxivId`: arXiv ID（例: `2201.00978`、バージョン番号なし）
   - `limit`: `5` | `10` | `20` | `50`（省略時は`5`）
@@ -73,6 +76,7 @@ app/
   api/semantic-scholar-cache.ts     Semantic Scholar APIレスポンスの簡易メモリキャッシュ（両Route Handlerで共有）
   api/related-papers-limit.ts       引用関係・類似論文の表示件数（5/10/20/50）の共有定義
   api/related-papers-sort.ts        引用関係・類似論文の並び替え条件（被引用数/新しい順/古い順/類似度）の共有定義
+  api/require-same-origin.ts        APIルート向けの簡易同一オリジンチェック
 ```
 
 ## 開発の進め方
@@ -183,6 +187,15 @@ app/
   - 先行研究（reference）は基準線に一番近いグループから**上方向**に積み上げ、後続研究（citation）は基準線に一番近いグループから**下方向**に積み上げるようにした。境界に近い側から積むことで、密集していても基準線を越えられない設計にした。データの日付が実際には基準日より前後逆転していても、この配置ロジックによって正しい側に強制されるようにした。
   - 密集したグループ（2件以上）は文字ラベルを省略し、ホバー時のツールチップでのみ詳細を表示するようにした（ラベル同士の重なりを防ぎ、よりコンパクトに）。単独の論文（グループサイズ1）はこれまで通りラベルを表示する。
   - 簡易テストで、基準線越えが実際に起きないこと（先行研究40件を密集させても基準線を越えない）と、コンパクト化の効果（縦一列なら800pxかかる分量が約200pxに収まる）を確認した。
+
+### 2026-07-11: 実際の利用者フィードバックへの対応（メタデータ・オリジンチェック・モバイル・ページネーション）
+- 公開URLを実際に開いて確認したユーザーから、コア機能や設計判断は評価しつつ、公開物としての細部にいくつか荒さが残っているという指摘を受けた。
+- **ページタイトル・メタディスクリプションを修正**: `create-next-app`のデフォルト（「Create Next App」）のまま放置されていた。`app/layout.tsx`の`metadata`を実際のアプリ内容に書き換え、`html lang`も`en`から`ja`に修正した。
+- **APIルートに簡易オリジンチェックを追加**: `/api/search`・`/api/citations`・`/api/recommendations`が誰でも直接叩ける状態で、他サイトから大量アクセスされるとarXivやSemantic Scholarへのリクエスト枠・APIキー割り当てを消費されうる、という指摘への対応。`app/api/require-same-origin.ts`でOriginヘッダーを確認し、自ドメイン以外からのブラウザ経由リクエストを403で拒否するようにした。
+- **関係マップのモバイル対応**: ノードの詳細がホバー依存で、密集グループはラベルも省略しているため、タッチ操作では情報を確認する手段がなかった。デスクトップでは変わらず「ホバーで詳細表示→クリックで検索」のまま、タッチデバイスでは「1回目のタップで詳細を固定表示→同じノードをもう一度タップで検索」という2段階の操作に対応させた。背景をタップすると固定表示を解除する。
+- **検索のページネーションを追加**: これまで検索結果は常に先頭20件のみで打ち切られていた。arXiv APIの`start`パラメータとAtomフィードの`opensearch:totalResults`を利用し、「もっと読み込む」ボタンで次の20件を追加取得できるようにした（`app/api/search/route.ts`、`app/page.tsx`）。
+
+## Getting Started
 
 開発サーバーの起動:
 

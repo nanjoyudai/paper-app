@@ -290,7 +290,7 @@ export function RelationMap({
         </span>
       </div>
       <p className="mb-2 text-xs text-zinc-400 dark:text-zinc-500">
-        丸をクリックするとこのサイトでその論文を検索、論文名をクリックするとarXivのページを開きます。件数が多い時期はまとめて表示され、ホバーすると個別の情報が見られます。
+        丸にカーソルを合わせる（スマホは1回タップ）と詳細が見られます。もう一度クリック/タップするとこのサイトでその論文を検索、論文名をクリックするとarXivのページを開きます。件数が多い時期はまとめて表示されます。
       </p>
 
       {/* SVGを画面幅に合わせて縮小させず、狭い画面では横スクロールで読めるようにする。 */}
@@ -302,6 +302,7 @@ export function RelationMap({
           style={{ minWidth: VIEWBOX_WIDTH }}
           role="img"
           aria-label={`「${centerTitle}」を中心にした、発表時期を縦軸にした引用・類似関係のマップ`}
+          onClick={() => setHovered(null)}
         >
           {categories.map((c) => (
             <text
@@ -393,7 +394,17 @@ export function RelationMap({
                   r={node.r}
                   fill={node.category.color}
                   className="cursor-pointer"
-                  onClick={() => onSelectPaper(node.paper.title)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // デスクトップではホバーで既に表示済みなのでそのまま検索へ。
+                    // タッチ操作ではホバーが発生しないため、1回目のタップで情報を
+                    // 表示し、同じノードをもう一度タップしたら検索を実行する。
+                    if (hovered?.key === node.key) {
+                      onSelectPaper(node.paper.title);
+                    } else {
+                      showTooltip(node, e);
+                    }
+                  }}
                 />
                 {node.showLabel &&
                   (node.paper.arxivId ? (

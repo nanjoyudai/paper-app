@@ -25,7 +25,10 @@ export default function Home() {
   const [sortBy, setSortBy] = useState<SortBy>("relevance");
   const [sortOrder, setSortOrder] = useState<SortOrder>("descending");
   const [papers, setPapers] = useState<Paper[]>([]);
+  const [totalResults, setTotalResults] = useState<number | null>(null);
+  const [lastSearchedTerms, setLastSearchedTerms] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function updateTerm(index: number, value: string) {
@@ -40,11 +43,16 @@ export default function Home() {
     setTerms((prev) => prev.filter((_, i) => i !== index));
   }
 
-  async function runSearch(searchTerms: string[]) {
+  async function runSearch(searchTerms: string[], start: number, append: boolean) {
     const filledTerms = searchTerms.map((t) => t.trim()).filter((t) => t.length > 0);
     if (filledTerms.length === 0) return;
 
-    setIsLoading(true);
+    if (append) {
+      setIsLoadingMore(true);
+    } else {
+      setIsLoading(true);
+      setLastSearchedTerms(filledTerms);
+    }
     setError(null);
 
     try {
@@ -53,6 +61,7 @@ export default function Home() {
       params.set("operator", operator);
       params.set("sortBy", sortBy);
       params.set("sortOrder", sortOrder);
+      params.set("start", String(start));
 
       const res = await fetch(`/api/search?${params.toString()}`);
       const data = await res.json();
@@ -61,26 +70,40 @@ export default function Home() {
         throw new Error(data.error ?? "検索に失敗しました");
       }
 
-      setPapers(data.papers);
+      setTotalResults(data.totalResults ?? null);
+      setPapers((prev) => (append ? [...prev, ...data.papers] : data.papers));
     } catch (err) {
       setError(err instanceof Error ? err.message : "検索に失敗しました");
-      setPapers([]);
+      if (!append) {
+        setPapers([]);
+        setTotalResults(null);
+      }
     } finally {
-      setIsLoading(false);
+      if (append) {
+        setIsLoadingMore(false);
+      } else {
+        setIsLoading(false);
+      }
     }
   }
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
-    await runSearch(terms);
+    await runSearch(terms, 0, false);
   }
 
   // 関係マップのノードをクリックしたときに、その論文のタイトルでこのサイト内を検索し直す。
   function searchForPaper(title: string) {
     setTerms([title]);
-    runSearch([title]);
+    runSearch([title], 0, false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
+
+  function loadMore() {
+    runSearch(lastSearchedTerms, papers.length, true);
+  }
+
+  const hasMore = totalResults !== null && papers.length < totalResults;
 
   return (
     <div className="flex min-h-screen flex-col items-center bg-zinc-50 px-4 py-12 font-sans dark:bg-black">
@@ -190,6 +213,23 @@ export default function Home() {
             <PaperCard key={paper.id} paper={paper} onSelectPaper={searchForPaper} />
           ))}
         </ul>
+
+        {papers.length > 0 && totalResults !== null && (
+          <p className="text-center text-sm text-zinc-500 dark:text-zinc-400">
+            {totalResults.toLocaleString()}件中 {papers.length}件を表示
+          </p>
+        )}
+
+        {hasMore && (
+          <button
+            type="button"
+            onClick={loadMore}
+            disabled={isLoadingMore}
+            className="self-center rounded-md border border-zinc-300 px-5 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            {isLoadingMore ? "読み込み中..." : "もっと読み込む"}
+          </button>
+        )}
 
         {!isLoading && papers.length === 0 && !error && (
           <p className="text-zinc-500 dark:text-zinc-400">

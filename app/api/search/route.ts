@@ -1,8 +1,11 @@
 import { XMLParser } from "fast-xml-parser";
 import { NextRequest, NextResponse } from "next/server";
 import { fetchArxiv } from "../arxiv-client";
+import { requireSameOrigin } from "../require-same-origin";
 
-const ARXIV_API_URL = "http://export.arxiv.org/api/query";
+const ARXIV_API_URL = "https://export.arxiv.org/api/query";
+const PAGE_SIZE = 20;
+const MAX_START = 1000;
 
 export type Paper = {
   id: string;
@@ -51,6 +54,9 @@ const SORT_ORDER_VALUES = ["descending", "ascending"] as const;
 type SortOrder = (typeof SORT_ORDER_VALUES)[number];
 
 export async function GET(request: NextRequest) {
+  const blocked = requireSameOrigin(request);
+  if (blocked) return blocked;
+
   const searchParams = request.nextUrl.searchParams;
 
   const terms = searchParams
@@ -77,12 +83,15 @@ export async function GET(request: NextRequest) {
     ? (sortOrderParam as SortOrder)
     : "descending";
 
+  const startParam = Number(searchParams.get("start"));
+  const start = Number.isFinite(startParam) ? Math.min(Math.max(0, startParam), MAX_START) : 0;
+
   const searchQuery = terms.map((t) => `all:${t}`).join(` ${operator} `);
 
   const params = new URLSearchParams({
     search_query: searchQuery,
-    start: "0",
-    max_results: "20",
+    start: String(start),
+    max_results: String(PAGE_SIZE),
     sortBy,
     sortOrder,
   });
@@ -98,6 +107,7 @@ export async function GET(request: NextRequest) {
 
   const entries: ArxivEntry[] = toArray(parsed?.feed?.entry);
   const papers = entries.map(parseEntry);
+  const totalResults = Number(parsed?.feed?.["opensearch:totalResults"]) || 0;
 
-  return NextResponse.json({ papers });
+  return NextResponse.json({ papers, totalResults, start });
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cachedFetch } from "../semantic-scholar-cache";
 import { ALLOWED_LIMITS, parseLimit } from "../related-papers-limit";
 import { citationsPerYearScore, parseSortBy } from "../related-papers-sort";
+import { requireSameOrigin } from "../require-same-origin";
 import type { RelatedPaper } from "../citations/route";
 
 const SEMANTIC_SCHOLAR_RECOMMENDATIONS_URL =
@@ -32,6 +33,9 @@ function compareByDate(a: RelatedPaper, b: RelatedPaper, direction: "asc" | "des
 }
 
 export async function GET(request: NextRequest) {
+  const blocked = requireSameOrigin(request);
+  if (blocked) return blocked;
+
   const arxivId = request.nextUrl.searchParams.get("arxivId")?.trim();
   const limit = parseLimit(request.nextUrl.searchParams.get("limit"));
   const sortBy = parseSortBy(request.nextUrl.searchParams.get("sortBy"));

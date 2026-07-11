@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cachedFetch } from "../semantic-scholar-cache";
 import { parseLimit } from "../related-papers-limit";
 import { citationsPerYearScore, parseSortBy, type SortBy } from "../related-papers-sort";
+import { requireSameOrigin } from "../require-same-origin";
 
 const SEMANTIC_SCHOLAR_API_URL = "https://api.semanticscholar.org/graph/v1/paper/arXiv:";
 
@@ -90,6 +91,9 @@ function selectTopN(papers: RelatedPaper[], limit: number, sortBy: SortBy): Rela
 }
 
 export async function GET(request: NextRequest) {
+  const blocked = requireSameOrigin(request);
+  if (blocked) return blocked;
+
   const arxivId = request.nextUrl.searchParams.get("arxivId")?.trim();
   const limit = parseLimit(request.nextUrl.searchParams.get("limit"));
   const sortBy = parseSortBy(request.nextUrl.searchParams.get("sortBy"));
