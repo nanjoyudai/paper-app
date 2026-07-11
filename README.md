@@ -2,6 +2,8 @@
 
 ClodeCodeを用いて作成した、arXiv APIを使って論文を検索・閲覧できるWebアプリ。
 
+**公開URL**: https://paper-app-mu.vercel.app
+
 ## 目的
 
 arXivに公開されている論文をキーワードで検索し、タイトル・著者・abstract・リンクなどを一覧表示する。まずは検索と表示のコア機能を作り、そこから機能を広げていく。
@@ -123,6 +125,10 @@ app/
 - 引用関係（citations）には「新しい順」「古い順」を追加した（被引用数順がデフォルト）。「類似度」はcitations側のデータには存在しない指標のため選択肢に含めず、選ばれた場合は被引用数順にフォールバックする。
 - 類似論文（recommendations）は元々Semantic Scholarのモデルが類似度順に返してくるため、「類似度順」をデフォルトの選択肢として追加し、それに加えて被引用数順・新しい順・古い順も選べるようにした。ただし後者3つは、すでに取得済みの類似度上位`limit`件を並べ替えているだけで、類似度以外の基準で候補全体から選び直しているわけではない（Semantic Scholar側にそのような検索方法がないため）。
 - 選択肢や表示ラベルの定義を`app/api/related-papers-sort.ts`に集約し、`app/api/citations/route.ts`・`app/api/recommendations/route.ts`・`app/components/PaperCard.tsx`から共有。
+
+### 2026-07-11: Vercelへデプロイ
+- ローカルの`npm run dev`でしか動かせない状態だったのを、Vercel（Next.jsを作っている会社自身のホスティングサービス）で公開した。`vercel --prod`でビルド〜公開まで自動化される。
+- 注意点: `app/api/arxiv-client.ts`・`app/api/semantic-scholar-cache.ts`のキャッシュ／レート制限キューはサーバーのメモリ上に持つ簡易実装。Vercelのようなサーバーレス環境ではリクエストごとに別インスタンスが使われることがあり、ローカルほど確実には効かない可能性がある。今のところ動作に支障は出ていないため、様子を見ながら必要なら外部ストレージ（Redisなど）への移行を検討する。
 
 ## Getting Started
 
