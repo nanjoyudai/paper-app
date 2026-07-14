@@ -52,12 +52,12 @@ arXivに公開されている論文をキーワードで検索し、タイトル
 - `GET /api/citations`: Semantic Scholar APIから引用情報を取得するRoute Handler（`app/api/citations/route.ts`）
   - `arxivId`: arXiv ID（例: `2201.00978`、バージョン番号なし）
   - `limit`: `5` | `10` | `20` | `50`（省略時は`5`）
-  - `sortBy`: `citationCount` | `newest` | `oldest`（省略時は`citationCount`。`similarity`が来た場合は`citationCount`と同じ扱い）
+  - `sortBy`: `citationCount` | `citationsPerYear` | `newest` | `oldest`（省略時は`citationCount`。`similarity`が来た場合は`citationCount`と同じ扱い）
   - この論文が引用している論文（references）／この論文を引用している論文（citations）を、それぞれ`sortBy`の基準で上位`limit`件選んで返す（`citationCount`の場合は選んだ後さらに公開日の昇順に並べ替える）
 - `GET /api/recommendations`: Semantic Scholar Recommendations APIから類似論文を取得するRoute Handler（`app/api/recommendations/route.ts`）
   - `arxivId`: arXiv ID
   - `limit`: `5` | `10` | `20` | `50`（省略時は`5`）
-  - `sortBy`: `similarity` | `citationCount` | `newest` | `oldest`（省略時は`similarity`）
+  - `sortBy`: `similarity` | `citationCount` | `citationsPerYear` | `newest` | `oldest`（省略時は`similarity`）
   - 引用関係ではなく、Semantic Scholar側のモデルが算出した「似ている論文」を`sortBy`の基準で並べて返す
 - トップページ（`app/page.tsx`）: キーワードを複数追加できる検索フォーム（AND/OR切り替え、並び順選択付き）と、タイトル・著者・公開日・abstract・引用関係／類似論文／関係マップの開閉ボタンを表示する結果一覧（`app/components/PaperCard.tsx`）、および「もっと読み込む」によるページネーション
 - 関係マップ（`app/components/RelationMap.tsx`）: 選んだ論文を中心に、引用している論文・引用されている論文・類似論文をSVGの時系列レイアウト（縦軸＝発表時期、横3レーン）で可視化。近い時期の論文はグループ化して横に並べ、先行研究／後続研究は選んだ論文の発表時期を表す基準線を越えない配置になっている。ノードの大きさは被引用数、色はカテゴリを表す。デスクトップではホバー、タッチデバイスでは1回目のタップで詳細ツールチップを表示し、もう一度クリック/タップするとこのサイト内でその論文を検索、論文名をクリックするとarXivのページへ移動する。
